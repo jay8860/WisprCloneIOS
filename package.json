@@ -1,0 +1,13 @@
+{
+  "name": "wispr-gemini-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Secure Gemini transcription proxy for Wispr Clone iOS keyboard flow",
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}
