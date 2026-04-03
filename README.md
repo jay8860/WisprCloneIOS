@@ -27,6 +27,10 @@ A local, no-subscription dictation tool for macOS that behaves like a Wispr-styl
 ## Project path
 `/Users/jayantnahata/Desktop/ChatGPT Codex Folder/wispr-clone-gemini`
 
+## Repo contents
+- macOS dictation app source: `Sources/`, `Package.swift`, `scripts/build_app_bundle.sh`
+- proxy server for secure mobile/backend use: `server.mjs`, `package.json`, `RAILWAY_DEPLOY.md`
+
 ## Run
 1. Build:
    ```bash
