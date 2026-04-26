@@ -157,7 +157,7 @@ struct FlowConfig: Codable {
             apiKeyEnvVar: "GEMINI_API_KEY",
             keychainService: "wispr-clone-gemini",
             keychainAccount: "gemini_api_key",
-            geminiModel: "gemini-2.0-flash",
+            geminiModel: "gemini-2.5-flash",
             languageHint: "en-US",
             languageMode: .mixed,
             scriptPreference: .auto,
@@ -859,18 +859,26 @@ final class GeminiClient: @unchecked Sendable {
     func transcribe(audioURL: URL, config: FlowConfig, context: DictationContext) throws -> String {
         let audioData = try Data(contentsOf: audioURL)
         let prompt = buildPrompt(config: config, context: context)
-        let maxRetries = max(0, config.maxTranscriptionRetries)
+        let configuredRetries = max(0, config.maxTranscriptionRetries)
 
         var lastError: Error?
-        for attempt in 0...maxRetries {
+        var attempt = 0
+        while true {
             do {
                 return try transcribeOnce(audioData: audioData, prompt: prompt)
             } catch {
                 lastError = error
-                if attempt < maxRetries {
-                    let backoff = 0.35 * Double(attempt + 1)
+                let allowedRetries = isRateLimited(error)
+                    ? max(configuredRetries, 2)
+                    : configuredRetries
+                if attempt < allowedRetries {
+                    let backoffBase = isRateLimited(error) ? 1.0 : 0.35
+                    let backoff = backoffBase * Double(attempt + 1)
                     Thread.sleep(forTimeInterval: backoff)
+                    attempt += 1
+                    continue
                 }
+                break
             }
         }
 
@@ -908,6 +916,13 @@ final class GeminiClient: @unchecked Sendable {
         }
 
         return try transformText(prompt: prompt, systemInstruction: instruction)
+    }
+
+    private func isRateLimited(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("resource exhausted")
+            || message.contains("429")
+            || message.contains("rate limit")
     }
 
     func warmUpTransport(force: Bool = false) {
@@ -2018,9 +2033,7 @@ final class FlowCloneService: @unchecked Sendable {
             } catch {
                 print("Transcription failed: \(error.localizedDescription)")
                 DispatchQueue.main.async {
-                    let hudMessage = error.localizedDescription.localizedCaseInsensitiveContains("language mode mismatch")
-                        ? "Language Mismatch • Not Inserted"
-                        : "Transcription Failed"
+                    let hudMessage = FlowCloneService.hudMessage(for: error)
                     VisualCueHUD.shared.show(message: hudMessage, color: .systemRed, autoHideAfter: 1.2)
                 }
             }
@@ -2149,6 +2162,20 @@ final class FlowCloneService: @unchecked Sendable {
 
     private static func wordCount(in text: String) -> Int {
         text.split { $0.isWhitespace || $0.isNewline }.count
+    }
+
+    private static func hudMessage(for error: Error) -> String {
+        let message = error.localizedDescription.lowercased()
+        if message.contains("language mode mismatch") {
+            return "Language Mismatch • Not Inserted"
+        }
+        if message.contains("resource exhausted") || message.contains("429") || message.contains("rate limit") {
+            return "Gemini Busy • Try Again"
+        }
+        if message.contains("api key is missing") {
+            return "API Key Missing"
+        }
+        return "Transcription Failed"
     }
 
     private static func scriptStats(in text: String) -> (latinCount: Int, devanagariCount: Int) {
@@ -2860,6 +2887,9 @@ final class FlowCloneService: @unchecked Sendable {
         let base = trimmed.replacingOccurrences(of: "[\\s,.;:!?।]+$", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else { return "" }
+        if isQuestionLikeIntro(base) {
+            return base + "?"
+        }
         return base + ":"
     }
 
@@ -2906,12 +2936,12 @@ final class FlowCloneService: @unchecked Sendable {
            let match = regex.firstMatch(in: output, options: [], range: NSRange(output.startIndex..<output.endIndex, in: output)),
            let markerRange = Range(match.range(at: 1), in: output),
            let tailRange = Range(match.range(at: 2), in: output) {
-            let marker = output[markerRange].capitalized
+           let marker = output[markerRange].capitalized
             let tail = output[tailRange]
                 .replacingOccurrences(of: "^[\\p{P}\\s]+", with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !tail.isEmpty {
-                return "\(marker), \(tail)"
+                return "\(marker), \(normalizeDeclarativeListTail(tail))"
             }
             return String(marker)
         }
@@ -2921,12 +2951,12 @@ final class FlowCloneService: @unchecked Sendable {
            let match = regex.firstMatch(in: output, options: [], range: NSRange(output.startIndex..<output.endIndex, in: output)),
            let markerRange = Range(match.range(at: 1), in: output),
            let tailRange = Range(match.range(at: 2), in: output) {
-            let marker = String(output[markerRange])
+           let marker = String(output[markerRange])
             let tail = output[tailRange]
                 .replacingOccurrences(of: "^[\\p{P}\\s]+", with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !tail.isEmpty {
-                return "\(marker), \(tail)"
+                return "\(marker), \(normalizeDeclarativeListTail(tail))"
             }
             return marker
         }
@@ -3079,6 +3109,8 @@ final class FlowCloneService: @unchecked Sendable {
             "(?i)^i\\s+(?:have|got)\\b.*\\b(?:thing|things|point|points|item|items)\\b",
             "(?i)^here\\s+(?:are|is)\\b.*\\b(?:thing|things|point|points|item|items)\\b",
             "(?i)^there\\s+(?:are|is)\\b.*\\b(?:thing|things|point|points|item|items)\\b",
+            "(?i)^what\\s+(?:are|is)\\b.*\\b(?:thing|things|point|points|item|items)\\b",
+            "(?i)^which\\s+(?:are|is)\\b.*\\b(?:thing|things|point|points|item|items)\\b",
             "(?i)^(?:the\\s+)?following\\s+(?:are|is)\\b.*\\b(?:thing|things|point|points|item|items)\\b",
             "(?i)^below\\s+(?:are|is)\\b.*\\b(?:thing|things|point|points|item|items)\\b",
             "(?i)^these\\s+(?:are|are\\s+the)\\b.*\\b(?:thing|things|point|points|item|items)\\b",
@@ -3089,6 +3121,44 @@ final class FlowCloneService: @unchecked Sendable {
         return introPatterns.contains { pattern in
             text.range(of: pattern, options: .regularExpression) != nil
         }
+    }
+
+    private static func isQuestionLikeIntro(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let patterns = [
+            "(?i)^what\\s+(?:are|is|should|do|does|did|can|could|would|will|have|has)\\b",
+            "(?i)^which\\s+(?:are|is|should|do|does|did|can|could|would|will|have|has)\\b",
+            "(?i)^why\\b",
+            "(?i)^how\\b",
+            "(?i)^when\\b",
+            "(?i)^where\\b"
+        ]
+        return patterns.contains { trimmed.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    private static func normalizeDeclarativeListTail(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+
+        if let regex = try? NSRegularExpression(pattern: "^(?i)is\\s+(.+?)\\s+there$"),
+           let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)),
+           let subjectRange = Range(match.range(at: 1), in: trimmed) {
+            let subject = trimmed[subjectRange].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !subject.isEmpty {
+                return "\(subject) is there"
+            }
+        }
+
+        if let regex = try? NSRegularExpression(pattern: "^(?i)are\\s+(.+?)\\s+there$"),
+           let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)),
+           let subjectRange = Range(match.range(at: 1), in: trimmed) {
+            let subject = trimmed[subjectRange].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !subject.isEmpty {
+                return "\(subject) are there"
+            }
+        }
+
+        return trimmed
     }
 
     private static func preferredBulletPrefix(style: String) -> String {
