@@ -14,6 +14,7 @@ final class VaaniSettingsWindowController: NSWindowController {
 
     private var hotkeyPopup: NSPopUpButton!
     private var modelPopup: NSPopUpButton!
+    private var micPopup: NSPopUpButton!
     private var languagePopup: NSPopUpButton!
     private var scriptPopup: NSPopUpButton!
 
@@ -25,6 +26,7 @@ final class VaaniSettingsWindowController: NSWindowController {
 
     private var maxRecordingSecondsField: NSTextField!
     private var retriesField: NSTextField!
+    private var micDevices: [AudioInputDeviceManager.InputDevice] = []
 
     private let modelOptions: [ModelOption] = [
         .init(title: "Gemini 3.1 Flash Lite (Preview) - Fast", value: "gemini-3.1-flash-lite-preview"),
@@ -112,6 +114,16 @@ final class VaaniSettingsWindowController: NSWindowController {
         modelPopup.target = self
         modelPopup.action = #selector(onModelChanged)
 
+        let micLabel = label("Microphone")
+        micPopup = NSPopUpButton()
+        micPopup.translatesAutoresizingMaskIntoConstraints = false
+        micDevices = AudioInputDeviceManager.listInputDevices()
+        var micTitles = ["System Default"]
+        micTitles.append(contentsOf: micDevices.map { $0.name })
+        micPopup.addItems(withTitles: micTitles)
+        micPopup.target = self
+        micPopup.action = #selector(onMicChanged)
+
         let maxRecLabel = label("Max Recording (sec)")
         maxRecordingSecondsField = NSTextField()
         maxRecordingSecondsField.translatesAutoresizingMaskIntoConstraints = false
@@ -127,6 +139,7 @@ final class VaaniSettingsWindowController: NSWindowController {
         let grid = NSGridView(views: [
             [hotkeyLabel, hotkeyPopup],
             [modelLabel, modelPopup],
+            [micLabel, micPopup],
             [maxRecLabel, maxRecordingSecondsField],
             [retriesLabel, retriesField]
         ])
@@ -254,6 +267,11 @@ final class VaaniSettingsWindowController: NSWindowController {
         scriptPopup.selectItem(at: scriptIndex(config.scriptPreference))
 
         hotkeyPopup.selectItem(at: hotkeyIndex(config.hotkey))
+        if let uid = config.preferredInputDeviceUID, let idx = micDevices.firstIndex(where: { $0.uid == uid }) {
+            micPopup.selectItem(at: idx + 1) // +1 for "System Default"
+        } else {
+            micPopup.selectItem(at: 0)
+        }
 
         stripFillersCheckbox.state = config.stripFillers ? .on : .off
         autoPunctuationCheckbox.state = config.autoPunctuation ? .on : .off
@@ -295,6 +313,20 @@ final class VaaniSettingsWindowController: NSWindowController {
         let idx = max(0, modelPopup.indexOfSelectedItem)
         config.geminiModel = modelOptions[min(idx, modelOptions.count - 1)].value
         persistAndApply()
+    }
+
+    @objc private func onMicChanged() {
+        let idx = micPopup.indexOfSelectedItem
+        if idx <= 0 {
+            config.preferredInputDeviceUID = nil
+        } else {
+            let deviceIdx = idx - 1
+            if deviceIdx >= 0, deviceIdx < micDevices.count {
+                config.preferredInputDeviceUID = micDevices[deviceIdx].uid
+            }
+        }
+        persistAndApply()
+        refreshUI()
     }
 
     @objc private func onLanguageChanged() {
@@ -379,4 +411,3 @@ final class VaaniSettingsWindowController: NSWindowController {
         }
     }
 }
-

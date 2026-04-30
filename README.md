@@ -29,6 +29,7 @@ A local, no-subscription dictation tool for macOS that behaves like a Wispr-styl
 
 ## Repo contents
 - macOS dictation app source: `Sources/`, `Package.swift`, `scripts/build_app_bundle.sh`
+- DMG packaging: `scripts/build_dmg.sh`
 - proxy server for secure mobile/backend use: `server.mjs`, `package.json`, `RAILWAY_DEPLOY.md`
 
 ## Run
@@ -60,6 +61,13 @@ swift run wispr-clone-gemini --help
 swift run wispr-clone-gemini --clear-api-key
 ```
 
+## Build a macOS app (.app) and DMG
+```bash
+cd /Users/jayantnahata/Desktop/ChatGPT\ Codex\ Folder/wispr-clone-gemini
+zsh scripts/build_app_bundle.sh
+zsh scripts/build_dmg.sh
+```
+
 ## Permissions required (macOS)
 - Accessibility
 - Input Monitoring
@@ -73,6 +81,7 @@ Config file is created automatically at:
 
 Important fields:
 - `hotkey.keyCode`, `hotkey.modifiers`
+- `preferredInputDeviceUID` (optional; picks a specific mic by UID, otherwise uses system default)
 - `languageHint`
 - `languageMode` (`auto`, `english`, `hindi`, `mixed`)
 - `scriptPreference` (`auto`, `native`, `romanized`)

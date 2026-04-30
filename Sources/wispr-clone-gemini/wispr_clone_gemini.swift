@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CoreAudio
 @preconcurrency import ApplicationServices
 import Foundation
 import Security
@@ -104,6 +105,7 @@ struct FlowConfig: Codable {
     var defaultStyleMode: StyleMode
     var appModeOverrides: [String: StyleMode]
     var hotkey: HotkeyConfig
+    var preferredInputDeviceUID: String?
     var stripFillers: Bool
     var autoPunctuation: Bool
     var convertSpokenFormattingCommands: Bool
@@ -133,6 +135,7 @@ struct FlowConfig: Codable {
         case defaultStyleMode
         case appModeOverrides
         case hotkey
+        case preferredInputDeviceUID
         case stripFillers
         case autoPunctuation
         case convertSpokenFormattingCommands
@@ -168,6 +171,7 @@ struct FlowConfig: Codable {
                 "com.apple.Notes": .notes
             ],
             hotkey: HotkeyConfig(keyCode: 49, modifiers: [.option]),
+            preferredInputDeviceUID: nil,
             stripFillers: true,
             autoPunctuation: true,
             convertSpokenFormattingCommands: true,
@@ -214,6 +218,7 @@ struct FlowConfig: Codable {
         defaultStyleMode: StyleMode,
         appModeOverrides: [String: StyleMode],
         hotkey: HotkeyConfig,
+        preferredInputDeviceUID: String?,
         stripFillers: Bool,
         autoPunctuation: Bool,
         convertSpokenFormattingCommands: Bool,
@@ -242,6 +247,7 @@ struct FlowConfig: Codable {
         self.defaultStyleMode = defaultStyleMode
         self.appModeOverrides = appModeOverrides
         self.hotkey = hotkey
+        self.preferredInputDeviceUID = preferredInputDeviceUID
         self.stripFillers = stripFillers
         self.autoPunctuation = autoPunctuation
         self.convertSpokenFormattingCommands = convertSpokenFormattingCommands
@@ -275,6 +281,7 @@ struct FlowConfig: Codable {
         self.defaultStyleMode = try container.decodeIfPresent(StyleMode.self, forKey: .defaultStyleMode) ?? defaults.defaultStyleMode
         self.appModeOverrides = try container.decodeIfPresent([String: StyleMode].self, forKey: .appModeOverrides) ?? defaults.appModeOverrides
         self.hotkey = try container.decodeIfPresent(HotkeyConfig.self, forKey: .hotkey) ?? defaults.hotkey
+        self.preferredInputDeviceUID = try container.decodeIfPresent(String.self, forKey: .preferredInputDeviceUID) ?? defaults.preferredInputDeviceUID
         self.stripFillers = try container.decodeIfPresent(Bool.self, forKey: .stripFillers) ?? defaults.stripFillers
         self.autoPunctuation = try container.decodeIfPresent(Bool.self, forKey: .autoPunctuation) ?? defaults.autoPunctuation
         self.convertSpokenFormattingCommands = try container.decodeIfPresent(Bool.self, forKey: .convertSpokenFormattingCommands) ?? defaults.convertSpokenFormattingCommands
@@ -350,7 +357,7 @@ final class DictationHistoryStore {
     private let queue = DispatchQueue(label: "wispr.clone.gemini.history.store")
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private let maxEntries = 5
+    private let maxEntries = 200
 
     init(baseDirectoryURL: URL) throws {
         try FileManager.default.createDirectory(at: baseDirectoryURL, withIntermediateDirectories: true)
@@ -414,6 +421,15 @@ final class DictationHistoryStore {
         }
     }
 
+    func clear() throws -> [DictationHistoryEntry] {
+        try queue.sync {
+            if FileManager.default.fileExists(atPath: historyURL.path) {
+                try FileManager.default.removeItem(at: historyURL)
+            }
+            return []
+        }
+    }
+
     private func loadUnlocked() throws -> [DictationHistoryEntry] {
         guard FileManager.default.fileExists(atPath: historyURL.path) else { return [] }
         let data = try Data(contentsOf: historyURL)
@@ -425,17 +441,45 @@ final class DictationHistoryStore {
 final class DictationHistoryWindow: NSObject {
     private var window: NSWindow?
     private var stackView: NSStackView?
-    private var entries: [DictationHistoryEntry] = []
+    private var titleLabel: NSTextField?
+    private var statsLabel: NSTextField?
+    private var searchField: NSSearchField?
+    private var allEntries: [DictationHistoryEntry] = []
+    private var visibleEntries: [DictationHistoryEntry] = []
     var onTransformEntry: ((DictationHistoryEntry, HistoryTransformMode) -> Void)?
+    var onClearHistory: (() -> Void)?
 
     func setEntries(_ entries: [DictationHistoryEntry]) {
-        self.entries = entries
+        self.allEntries = entries
+        applyFilterAndReload()
+    }
+
+    func setSearchQuery(_ query: String) {
+        searchField?.stringValue = query
+        applyFilterAndReload()
+    }
+
+    private func applyFilterAndReload() {
+        let query = (searchField?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            visibleEntries = allEntries
+        } else {
+            let q = query.lowercased()
+            visibleEntries = allEntries.filter { entry in
+                let model = entry.model ?? ""
+                return entry.text.lowercased().contains(q)
+                    || entry.appName.lowercased().contains(q)
+                    || model.lowercased().contains(q)
+            }
+        }
+        updateTitle()
         rebuildRows()
     }
 
     func show() {
         ensureWindow()
-        rebuildRows()
+        updateTitle()
+        applyFilterAndReload()
         guard let window else { return }
         if !window.isVisible {
             window.center()
@@ -462,10 +506,31 @@ final class DictationHistoryWindow: NSObject {
         let root = NSView(frame: frame)
         root.translatesAutoresizingMaskIntoConstraints = false
 
-        let titleLabel = NSTextField(labelWithString: "Recent Dictations (Last 5)")
-        titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(titleLabel)
+        let title = NSTextField(labelWithString: "Recent Dictations")
+        title.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(title)
+        self.titleLabel = title
+
+        let stats = NSTextField(labelWithString: "")
+        stats.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        stats.textColor = .secondaryLabelColor
+        stats.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stats)
+        self.statsLabel = stats
+
+        let search = NSSearchField()
+        search.translatesAutoresizingMaskIntoConstraints = false
+        search.placeholderString = "Search history"
+        search.target = self
+        search.action = #selector(onSearchChanged)
+        root.addSubview(search)
+        self.searchField = search
+
+        let clear = NSButton(title: "Clear", target: self, action: #selector(clearHistory))
+        clear.translatesAutoresizingMaskIntoConstraints = false
+        clear.bezelStyle = .rounded
+        root.addSubview(clear)
 
         let scroll = NSScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -482,11 +547,21 @@ final class DictationHistoryWindow: NSObject {
         self.stackView = stack
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
-            titleLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            title.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
+            title.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
 
-            scroll.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10),
+            clear.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+            clear.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+
+            stats.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
+            stats.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            stats.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -16),
+
+            search.topAnchor.constraint(equalTo: stats.bottomAnchor, constant: 8),
+            search.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            search.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+
+            scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 10),
             scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
             scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
             scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12),
@@ -498,6 +573,45 @@ final class DictationHistoryWindow: NSObject {
         self.window = window
     }
 
+    private func updateTitle() {
+        guard let titleLabel else { return }
+        let total = allEntries.count
+        let showing = visibleEntries.count
+        if total == showing {
+            titleLabel.stringValue = "Recent Dictations (\(total))"
+        } else {
+            titleLabel.stringValue = "Recent Dictations (\(showing) of \(total))"
+        }
+
+        if let statsLabel {
+            let pipeline = visibleEntries.compactMap { $0.pipelineLatencyMs }
+            let model = visibleEntries.compactMap { $0.modelLatencyMs }
+            if !pipeline.isEmpty || !model.isEmpty {
+                let avgPipeline = pipeline.isEmpty ? nil : Double(pipeline.reduce(0, +)) / Double(pipeline.count) / 1000.0
+                let avgModel = model.isEmpty ? nil : Double(model.reduce(0, +)) / Double(model.count) / 1000.0
+                if let avgPipeline, let avgModel {
+                    statsLabel.stringValue = String(format: "Avg total: %.1fs  Avg model: %.1fs", avgPipeline, avgModel)
+                } else if let avgPipeline {
+                    statsLabel.stringValue = String(format: "Avg total: %.1fs", avgPipeline)
+                } else if let avgModel {
+                    statsLabel.stringValue = String(format: "Avg model: %.1fs", avgModel)
+                }
+            } else {
+                statsLabel.stringValue = ""
+            }
+        }
+    }
+
+    @objc
+    private func onSearchChanged() {
+        applyFilterAndReload()
+    }
+
+    @objc
+    private func clearHistory() {
+        onClearHistory?()
+    }
+
     private func rebuildRows() {
         guard let stackView else { return }
         while let view = stackView.arrangedSubviews.first {
@@ -505,7 +619,7 @@ final class DictationHistoryWindow: NSObject {
             view.removeFromSuperview()
         }
 
-        if entries.isEmpty {
+        if visibleEntries.isEmpty {
             let empty = NSTextField(labelWithString: "No dictations yet.")
             empty.textColor = .secondaryLabelColor
             empty.font = NSFont.systemFont(ofSize: 13, weight: .regular)
@@ -513,7 +627,7 @@ final class DictationHistoryWindow: NSObject {
             return
         }
 
-        for (index, entry) in entries.enumerated() {
+        for (index, entry) in visibleEntries.enumerated() {
             let card = NSView()
             card.wantsLayer = true
             card.layer?.cornerRadius = 10
@@ -585,8 +699,8 @@ final class DictationHistoryWindow: NSObject {
     @objc
     private func copyEntry(_ sender: NSButton) {
         let index = sender.tag
-        guard index >= 0, index < entries.count else { return }
-        let text = entries[index].text
+        guard index >= 0, index < visibleEntries.count else { return }
+        let text = visibleEntries[index].text
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -604,8 +718,8 @@ final class DictationHistoryWindow: NSObject {
     }
 
     private func triggerTransform(for index: Int, mode: HistoryTransformMode) {
-        guard index >= 0, index < entries.count else { return }
-        onTransformEntry?(entries[index], mode)
+        guard index >= 0, index < visibleEntries.count else { return }
+        onTransformEntry?(visibleEntries[index], mode)
     }
 
     private func formattedDate(_ date: Date) -> String {
@@ -1753,6 +1867,7 @@ final class HotkeyListener {
     }
 }
 
+@MainActor
 final class MenuBarActionProxy: NSObject {
     let onToggle: () -> Void
     let onShowHistory: () -> Void
@@ -1853,6 +1968,8 @@ final class FlowCloneService: @unchecked Sendable {
     private var settingsWindow: VaaniSettingsWindowController?
     private var menuActionProxy: MenuBarActionProxy?
     private var historyWindow: DictationHistoryWindow?
+    private var previousDefaultInputDevice: AudioDeviceID?
+    private var lastStatusSymbolName: String?
     private var activeContext = DictationContext(
         appName: "Unknown",
         bundleIdentifier: "",
@@ -2042,6 +2159,15 @@ final class FlowCloneService: @unchecked Sendable {
         }
 
         do {
+            previousDefaultInputDevice = nil
+            if let preferredUID = config.preferredInputDeviceUID, !preferredUID.isEmpty {
+                previousDefaultInputDevice = AudioInputDeviceManager.setDefaultInputDevice(uid: preferredUID)
+                if previousDefaultInputDevice == nil {
+                    DispatchQueue.main.async {
+                        VisualCueHUD.shared.show(message: "Mic Not Found", color: .systemOrange, autoHideAfter: 1.0)
+                    }
+                }
+            }
             _ = try recorder.start()
             isRecording = true
             recordingStartedAt = Date()
@@ -2065,6 +2191,10 @@ final class FlowCloneService: @unchecked Sendable {
             autoStopWorkItem = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(maxSeconds), execute: workItem)
         } catch {
+            if let previous = previousDefaultInputDevice {
+                AudioInputDeviceManager.restoreDefaultInputDevice(previous)
+                previousDefaultInputDevice = nil
+            }
             print("Start recording failed: \(error.localizedDescription)")
             updateMenuBarStateAsync()
             DispatchQueue.main.async {
@@ -2081,6 +2211,11 @@ final class FlowCloneService: @unchecked Sendable {
         updateMenuBarStateAsync()
         let startedAt = recordingStartedAt ?? Date()
         recordingStartedAt = nil
+
+        if let previous = previousDefaultInputDevice {
+            AudioInputDeviceManager.restoreDefaultInputDevice(previous)
+            previousDefaultInputDevice = nil
+        }
 
         guard let audioURL = recorder.stop() else {
             print("Stop requested, but no audio file exists.")
@@ -3494,12 +3629,27 @@ final class FlowCloneService: @unchecked Sendable {
         hindiModeMenuItem?.state = config.languageMode == .hindi ? .on : .off
         mixedModeMenuItem?.state = config.languageMode == .mixed ? .on : .off
 
+        let symbolName: String
         if isRecording {
-            statusItem?.button?.title = "WF*"
-        } else if isListenerEnabled {
-            statusItem?.button?.title = "WF"
+            symbolName = "mic.fill"
+        } else if !isListenerEnabled {
+            symbolName = "pause.fill"
+        } else if hotkeyListener != nil {
+            symbolName = "waveform"
         } else {
-            statusItem?.button?.title = "WF||"
+            symbolName = "exclamationmark.triangle.fill"
+        }
+
+        if let button = statusItem?.button {
+            button.toolTip = statusText
+            if lastStatusSymbolName != symbolName {
+                lastStatusSymbolName = symbolName
+                let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: statusText)
+                image?.isTemplate = true
+                button.image = image
+                button.title = ""
+                button.imagePosition = .imageOnly
+            }
         }
     }
 
@@ -3553,7 +3703,21 @@ final class FlowCloneService: @unchecked Sendable {
             let entries = self.loadHistoryEntries()
             let window = self.ensureHistoryWindow()
             window.setEntries(entries)
+            window.onClearHistory = { [weak self] in
+                self?.clearHistoryFromMenu()
+            }
             window.show()
+        }
+    }
+
+    @MainActor
+    private func clearHistoryFromMenu() {
+        do {
+            let entries = try historyStore.clear()
+            historyWindow?.setEntries(entries)
+            VisualCueHUD.shared.show(message: "History Cleared", color: .systemBlue, autoHideAfter: 0.9)
+        } catch {
+            VisualCueHUD.shared.show(message: "Clear Failed", color: .systemRed, autoHideAfter: 1.0)
         }
     }
 
