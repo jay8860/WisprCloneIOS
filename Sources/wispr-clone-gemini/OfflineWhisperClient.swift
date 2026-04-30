@@ -28,7 +28,6 @@ enum OfflineWhisperClient {
             a += ["-otxt"]
             a += ["-of", outputBaseURL.path]
             a += ["-nt"] // no timestamps
-            a += ["-np"] // no printing progress (keeps output clean)
             if let lang = whisperLangCode(from: config.languageHint) {
                 a += ["-l", lang]
             }
