@@ -70,8 +70,14 @@ zsh scripts/build_app_bundle.sh
 zsh scripts/build_dmg.sh
 ```
 
+Prettier DMG (icon layout):
+```bash
+zsh scripts/build_dmg_pretty.sh
+```
+
 ## License + Updates
 - Menu bar now includes `License...` (stores key in Keychain) and `Check for Updates...` (checks latest GitHub release).
+- Sparkle is integrated for true in-app updates, but you must publish a proper `appcast.xml` and set `SPARKLE_PUBLIC_ED_KEY` during release builds.
 - Update settings are in `config.json`:
   - `updatesEnabled`
   - `updatesLatestReleaseAPIURL`

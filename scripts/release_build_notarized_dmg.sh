@@ -56,5 +56,7 @@ fi
 echo "Stapling notarization ticket…"
 xcrun stapler staple "$DMG_PATH"
 
-echo "Notarized DMG ready: $DMG_PATH"
+echo "Verifying Gatekeeper acceptance…"
+spctl -a -vv --type open "$DMG_PATH" || true
 
+echo "Notarized DMG ready: $DMG_PATH"

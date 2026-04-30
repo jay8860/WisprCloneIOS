@@ -113,6 +113,9 @@ struct FlowConfig: Codable {
     var updatesEnabled: Bool
     var updatesLatestReleaseAPIURL: String
     var updatesReleasesPageURL: String
+    var licenseMode: VaaniLicenseVerifier.Mode
+    var trialDays: Int
+    var licensePublicKeyBase64: String?
     var stripFillers: Bool
     var autoPunctuation: Bool
     var convertSpokenFormattingCommands: Bool
@@ -150,6 +153,9 @@ struct FlowConfig: Codable {
         case updatesEnabled
         case updatesLatestReleaseAPIURL
         case updatesReleasesPageURL
+        case licenseMode
+        case trialDays
+        case licensePublicKeyBase64
         case stripFillers
         case autoPunctuation
         case convertSpokenFormattingCommands
@@ -193,6 +199,9 @@ struct FlowConfig: Codable {
             updatesEnabled: true,
             updatesLatestReleaseAPIURL: "https://api.github.com/repos/jay8860/WisprCloneIOS/releases/latest",
             updatesReleasesPageURL: "https://github.com/jay8860/WisprCloneIOS/releases/latest",
+            licenseMode: .trial,
+            trialDays: 7,
+            licensePublicKeyBase64: nil,
             stripFillers: true,
             autoPunctuation: true,
             convertSpokenFormattingCommands: true,
@@ -247,6 +256,9 @@ struct FlowConfig: Codable {
         updatesEnabled: Bool,
         updatesLatestReleaseAPIURL: String,
         updatesReleasesPageURL: String,
+        licenseMode: VaaniLicenseVerifier.Mode,
+        trialDays: Int,
+        licensePublicKeyBase64: String?,
         stripFillers: Bool,
         autoPunctuation: Bool,
         convertSpokenFormattingCommands: Bool,
@@ -283,6 +295,9 @@ struct FlowConfig: Codable {
         self.updatesEnabled = updatesEnabled
         self.updatesLatestReleaseAPIURL = updatesLatestReleaseAPIURL
         self.updatesReleasesPageURL = updatesReleasesPageURL
+        self.licenseMode = licenseMode
+        self.trialDays = trialDays
+        self.licensePublicKeyBase64 = licensePublicKeyBase64
         self.stripFillers = stripFillers
         self.autoPunctuation = autoPunctuation
         self.convertSpokenFormattingCommands = convertSpokenFormattingCommands
@@ -324,6 +339,9 @@ struct FlowConfig: Codable {
         self.updatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .updatesEnabled) ?? defaults.updatesEnabled
         self.updatesLatestReleaseAPIURL = try container.decodeIfPresent(String.self, forKey: .updatesLatestReleaseAPIURL) ?? defaults.updatesLatestReleaseAPIURL
         self.updatesReleasesPageURL = try container.decodeIfPresent(String.self, forKey: .updatesReleasesPageURL) ?? defaults.updatesReleasesPageURL
+        self.licenseMode = try container.decodeIfPresent(VaaniLicenseVerifier.Mode.self, forKey: .licenseMode) ?? defaults.licenseMode
+        self.trialDays = try container.decodeIfPresent(Int.self, forKey: .trialDays) ?? defaults.trialDays
+        self.licensePublicKeyBase64 = try container.decodeIfPresent(String.self, forKey: .licensePublicKeyBase64) ?? defaults.licensePublicKeyBase64
         self.stripFillers = try container.decodeIfPresent(Bool.self, forKey: .stripFillers) ?? defaults.stripFillers
         self.autoPunctuation = try container.decodeIfPresent(Bool.self, forKey: .autoPunctuation) ?? defaults.autoPunctuation
         self.convertSpokenFormattingCommands = try container.decodeIfPresent(Bool.self, forKey: .convertSpokenFormattingCommands) ?? defaults.convertSpokenFormattingCommands
@@ -1922,6 +1940,7 @@ final class MenuBarActionProxy: NSObject {
     let onSelectHindiMode: () -> Void
     let onSelectMixedMode: () -> Void
     let onQuit: () -> Void
+    let onExportDiagnostics: () -> Void
 
     init(
         onToggle: @escaping () -> Void,
@@ -1933,7 +1952,8 @@ final class MenuBarActionProxy: NSObject {
         onSelectEnglishMode: @escaping () -> Void,
         onSelectHindiMode: @escaping () -> Void,
         onSelectMixedMode: @escaping () -> Void,
-        onQuit: @escaping () -> Void
+        onQuit: @escaping () -> Void,
+        onExportDiagnostics: @escaping () -> Void
     ) {
         self.onToggle = onToggle
         self.onShowHistory = onShowHistory
@@ -1945,6 +1965,7 @@ final class MenuBarActionProxy: NSObject {
         self.onSelectHindiMode = onSelectHindiMode
         self.onSelectMixedMode = onSelectMixedMode
         self.onQuit = onQuit
+        self.onExportDiagnostics = onExportDiagnostics
     }
 
     @objc
@@ -1996,6 +2017,11 @@ final class MenuBarActionProxy: NSObject {
     func handleQuit() {
         onQuit()
     }
+
+    @objc
+    func handleExportDiagnostics() {
+        onExportDiagnostics()
+    }
 }
 
 final class FlowCloneService: @unchecked Sendable {
@@ -2026,10 +2052,14 @@ final class FlowCloneService: @unchecked Sendable {
     private var onboardingWindow: VaaniOnboardingWindowController?
     private var settingsWindow: VaaniSettingsWindowController?
     private var licenseWindow: VaaniLicenseWindowController?
+    private var sparkleUpdater: VaaniSparkleUpdater?
     private var menuActionProxy: MenuBarActionProxy?
     private var historyWindow: DictationHistoryWindow?
     private var previousDefaultInputDevice: AudioDeviceID?
     private var lastStatusSymbolName: String?
+    private var logsDirectoryURL: URL {
+        configStore.configURL.deletingLastPathComponent().appendingPathComponent("logs", isDirectory: true)
+    }
     private var activeContext = DictationContext(
         appName: "Unknown",
         bundleIdentifier: "",
@@ -2047,6 +2077,9 @@ final class FlowCloneService: @unchecked Sendable {
     func run() throws {
         _ = NSApplication.shared
         _ = NSApplication.shared.setActivationPolicy(.accessory)
+        VaaniLogger.shared.bootstrap(logsDirectory: logsDirectoryURL)
+        VaaniLogger.shared.log("app_started version=\(AppVersion.displayString)")
+        sparkleUpdater = VaaniSparkleUpdater()
         setupStatusBarMenu()
         let historyWindow = ensureHistoryWindow()
         historyWindow.setEntries(loadHistoryEntries())
@@ -2210,6 +2243,14 @@ final class FlowCloneService: @unchecked Sendable {
     private func startRecording() {
         guard !isRecording else { return }
 
+        if !isLicenseAllowedToDictate() {
+            DispatchQueue.main.async {
+                self.openLicenseFromMenu()
+                VisualCueHUD.shared.show(message: "Activation Required", color: .systemOrange, autoHideAfter: 1.2)
+            }
+            return
+        }
+
         if config.blockInSensitiveFields && AccessibilityInspector.focusedFieldLooksSensitive() {
             print("Blocked: focused field appears sensitive.")
             DispatchQueue.main.async {
@@ -2260,6 +2301,24 @@ final class FlowCloneService: @unchecked Sendable {
             DispatchQueue.main.async {
                 VisualCueHUD.shared.show(message: "Mic Error", color: .systemRed, autoHideAfter: 1.2)
             }
+        }
+    }
+
+    private func isLicenseAllowedToDictate() -> Bool {
+        switch config.licenseMode {
+        case .off:
+            return true
+        case .trial:
+            let license = LicenseManager.readKey()
+            let verified = VaaniLicenseVerifier.verify(licenseKey: license, publicKeyBase64: config.licensePublicKeyBase64)
+            if verified.isValid {
+                return true
+            }
+            return VaaniLicenseVerifier.isTrialValid(trialDays: config.trialDays)
+        case .required:
+            let license = LicenseManager.readKey()
+            let verified = VaaniLicenseVerifier.verify(licenseKey: license, publicKeyBase64: config.licensePublicKeyBase64)
+            return verified.isValid
         }
     }
 
@@ -3625,6 +3684,9 @@ final class FlowCloneService: @unchecked Sendable {
             },
             onQuit: { [weak self] in
                 self?.quitFromMenu()
+            },
+            onExportDiagnostics: { [weak self] in
+                self?.exportDiagnosticsFromMenu()
             }
         )
         self.menuActionProxy = proxy
@@ -3657,6 +3719,10 @@ final class FlowCloneService: @unchecked Sendable {
         let checkUpdates = NSMenuItem(title: "Check for Updates...", action: #selector(MenuBarActionProxy.handleCheckForUpdates), keyEquivalent: "u")
         checkUpdates.target = proxy
         menu.addItem(checkUpdates)
+
+        let exportDiag = NSMenuItem(title: "Export Diagnostics...", action: #selector(MenuBarActionProxy.handleExportDiagnostics), keyEquivalent: "")
+        exportDiag.target = proxy
+        menu.addItem(exportDiag)
 
         let languageModeMenu = NSMenu()
         let languageModeItem = NSMenuItem(title: "Language Mode", action: nil, keyEquivalent: "")
@@ -3717,30 +3783,22 @@ final class FlowCloneService: @unchecked Sendable {
             VisualCueHUD.shared.show(message: "Updates Disabled", color: .systemGray, autoHideAfter: 1.0)
             return
         }
-        VisualCueHUD.shared.show(message: "Checking for Updates…", color: .systemBlue, autoHideAfter: 1.0)
-        UpdateChecker.check(
-            latestReleaseAPIURL: config.updatesLatestReleaseAPIURL,
-            releasesPageURL: config.updatesReleasesPageURL
-        ) { result in
+        sparkleUpdater?.checkForUpdates()
+    }
+
+    @MainActor
+    private func exportDiagnosticsFromMenu() {
+        let configURL = configStore.configURL
+        let historyURL = configStore.configURL.deletingLastPathComponent().appendingPathComponent("history.json")
+        let logURL = VaaniLogger.shared.logFileURL
+        VaaniDiagnostics.export(configURL: configURL, historyURL: historyURL, logURL: logURL) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .failure:
-                    VisualCueHUD.shared.show(message: "Update Check Failed", color: .systemRed, autoHideAfter: 1.2)
-                case .success(let status):
-                    switch status {
-                    case .upToDate(let version):
-                        VisualCueHUD.shared.show(message: "Up to date (\(version))", color: .systemGreen, autoHideAfter: 1.1)
-                    case .updateAvailable(let current, let latest, let url):
-                        let alert = NSAlert()
-                        alert.messageText = "Update Available"
-                        alert.informativeText = "Current: \(current)\nLatest: \(latest)"
-                        alert.addButton(withTitle: "Open Download Page")
-                        alert.addButton(withTitle: "Later")
-                        let response = alert.runModal()
-                        if response == .alertFirstButtonReturn {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
+                    VisualCueHUD.shared.show(message: "Export Failed", color: .systemRed, autoHideAfter: 1.2)
+                case .success(let url):
+                    VisualCueHUD.shared.show(message: "Diagnostics Exported", color: .systemGreen, autoHideAfter: 1.0)
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
             }
         }

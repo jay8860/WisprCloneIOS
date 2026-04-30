@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Wispr Clone Gemini</title>
+    <link>https://github.com/jay8860/WisprCloneIOS/releases</link>
+    <description>Updates for Wispr Clone Gemini</description>
+    <language>en</language>
+    <!--
+      This is a placeholder appcast. For real Sparkle updates you must publish a signed update
+      and generate a proper appcast with Sparkle's tooling (`generate_appcast`) including
+      sparkle:edSignature and correct enclosure URL.
+    -->
+    <item>
+      <title>Initial Release</title>
+      <sparkle:version>1</sparkle:version>
+      <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
+      <description><![CDATA[Initial public release.]]></description>
+      <pubDate>Thu, 30 Apr 2026 00:00:00 +0000</pubDate>
+      <enclosure url="https://github.com/jay8860/WisprCloneIOS/releases" length="0" type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>
+
