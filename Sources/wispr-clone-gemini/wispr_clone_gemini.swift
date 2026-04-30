@@ -157,7 +157,7 @@ struct FlowConfig: Codable {
             apiKeyEnvVar: "GEMINI_API_KEY",
             keychainService: "wispr-clone-gemini",
             keychainAccount: "gemini_api_key",
-            geminiModel: "gemini-2.5-flash",
+            geminiModel: "gemini-3.1-flash-lite-preview",
             languageHint: "en-US",
             languageMode: .mixed,
             scriptPreference: .auto,
@@ -335,6 +335,9 @@ struct DictationHistoryEntry: Codable {
     let text: String
     let appName: String
     let createdAt: Date
+    let model: String?
+    let modelLatencyMs: Int?
+    let pipelineLatencyMs: Int?
 }
 
 enum HistoryTransformMode {
@@ -361,14 +364,23 @@ final class DictationHistoryStore {
         }
     }
 
-    func append(text: String, appName: String) throws -> [DictationHistoryEntry] {
+    func append(
+        text: String,
+        appName: String,
+        model: String,
+        modelLatencyMs: Int?,
+        pipelineLatencyMs: Int?
+    ) throws -> [DictationHistoryEntry] {
         try queue.sync {
             var entries = try loadUnlocked()
             let entry = DictationHistoryEntry(
                 id: UUID(),
                 text: text,
                 appName: appName,
-                createdAt: Date()
+                createdAt: Date(),
+                model: model,
+                modelLatencyMs: modelLatencyMs,
+                pipelineLatencyMs: pipelineLatencyMs
             )
             entries.insert(entry, at: 0)
             if entries.count > maxEntries {
@@ -391,7 +403,10 @@ final class DictationHistoryStore {
                 id: current.id,
                 text: newText,
                 appName: current.appName,
-                createdAt: current.createdAt
+                createdAt: current.createdAt,
+                model: current.model,
+                modelLatencyMs: current.modelLatencyMs,
+                pipelineLatencyMs: current.pipelineLatencyMs
             )
             let data = try encoder.encode(entries)
             try data.write(to: historyURL, options: .atomic)
@@ -505,7 +520,11 @@ final class DictationHistoryWindow: NSObject {
             card.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.9).cgColor
             card.translatesAutoresizingMaskIntoConstraints = false
 
-            let meta = NSTextField(labelWithString: "\(formattedDate(entry.createdAt)) • \(entry.appName)")
+            let modelName = prettifyModelName(entry.model)
+            let metaText = modelName == nil
+                ? "\(formattedDate(entry.createdAt)) • \(entry.appName)"
+                : "\(formattedDate(entry.createdAt)) • \(entry.appName) • \(modelName!)"
+            let meta = NSTextField(labelWithString: metaText)
             meta.font = NSFont.systemFont(ofSize: 11, weight: .medium)
             meta.textColor = .secondaryLabelColor
             meta.translatesAutoresizingMaskIntoConstraints = false
@@ -594,6 +613,12 @@ final class DictationHistoryWindow: NSObject {
         formatter.dateStyle = .none
         formatter.timeStyle = .medium
         return formatter.string(from: date)
+    }
+
+    private func prettifyModelName(_ model: String?) -> String? {
+        guard let model, !model.isEmpty else { return nil }
+        let cleaned = model.replacingOccurrences(of: "^models/", with: "", options: .regularExpression)
+        return cleaned.isEmpty ? nil : cleaned
     }
 }
 enum KeychainStoreError: LocalizedError {
@@ -971,7 +996,9 @@ final class GeminiClient: @unchecked Sendable {
             ],
             "generationConfig": [
                 "temperature": 0.0,
-                "maxOutputTokens": 224,
+                // Longer dictations can exceed 224 tokens; if the model truncates mid-JSON,
+                // we risk inserting malformed "here is the JSON..." garbage. Give it room.
+                "maxOutputTokens": 1024,
                 "responseMimeType": "application/json",
                 "responseSchema": [
                     "type": "OBJECT",
@@ -1246,7 +1273,13 @@ final class GeminiClient: @unchecked Sendable {
 
             let text = parts.compactMap { part -> String? in
                 if let rawText = part["text"] as? String {
-                    return extractTranscriptField(from: rawText) ?? rawText
+                    if let extracted = extractTranscriptField(from: rawText) {
+                        return extracted
+                    }
+                    if looksLikeJSONWrapperText(rawText) {
+                        return nil
+                    }
+                    return rawText
                 }
                 return nil
             }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1259,12 +1292,76 @@ final class GeminiClient: @unchecked Sendable {
     }
 
     private func extractTranscriptField(from rawText: String) -> String? {
-        guard let data = rawText.data(using: .utf8),
+        let cleaned = stripCodeFences(rawText).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let transcript = extractTranscriptFromJSONText(cleaned) {
+            return transcript
+        }
+
+        // If the model returned a preamble + JSON, try extracting a JSON object substring.
+        for jsonCandidate in extractBalancedJSONObjects(from: cleaned) {
+            if let transcript = extractTranscriptFromJSONText(jsonCandidate) {
+                return transcript
+            }
+        }
+
+        return nil
+    }
+
+    private func extractTranscriptFromJSONText(_ text: String) -> String? {
+        guard let data = text.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let transcript = object["transcript"] as? String else {
             return nil
         }
         return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func looksLikeJSONWrapperText(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if lower.contains("\"transcript\"") { return true }
+        if lower.contains("```json") || lower.contains("```") { return true }
+        if lower.contains("here is the json") || lower.contains("json requested") { return true }
+        if lower.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") { return true }
+        return false
+    }
+
+    private func stripCodeFences(_ text: String) -> String {
+        var output = text
+        output = output.replacingOccurrences(of: "```json", with: "", options: .caseInsensitive)
+        output = output.replacingOccurrences(of: "```", with: "")
+        return output
+    }
+
+    private func extractBalancedJSONObjects(from text: String) -> [String] {
+        var results: [String] = []
+        var depth = 0
+        var startIndex: String.Index?
+
+        var index = text.startIndex
+        while index < text.endIndex {
+            let ch = text[index]
+            if ch == "{" {
+                if depth == 0 {
+                    startIndex = index
+                }
+                depth += 1
+            } else if ch == "}" {
+                if depth > 0 {
+                    depth -= 1
+                    if depth == 0, let start = startIndex {
+                        let candidate = String(text[start...index])
+                        if candidate.contains("\"transcript\"") {
+                            results.append(candidate)
+                        }
+                        startIndex = nil
+                    }
+                }
+            }
+            index = text.index(after: index)
+        }
+
+        return results
     }
 }
 
@@ -1659,6 +1756,7 @@ final class HotkeyListener {
 final class MenuBarActionProxy: NSObject {
     let onToggle: () -> Void
     let onShowHistory: () -> Void
+    let onOpenSettings: () -> Void
     let onStopRecording: () -> Void
     let onSelectEnglishMode: () -> Void
     let onSelectHindiMode: () -> Void
@@ -1668,6 +1766,7 @@ final class MenuBarActionProxy: NSObject {
     init(
         onToggle: @escaping () -> Void,
         onShowHistory: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void,
         onStopRecording: @escaping () -> Void,
         onSelectEnglishMode: @escaping () -> Void,
         onSelectHindiMode: @escaping () -> Void,
@@ -1676,6 +1775,7 @@ final class MenuBarActionProxy: NSObject {
     ) {
         self.onToggle = onToggle
         self.onShowHistory = onShowHistory
+        self.onOpenSettings = onOpenSettings
         self.onStopRecording = onStopRecording
         self.onSelectEnglishMode = onSelectEnglishMode
         self.onSelectHindiMode = onSelectHindiMode
@@ -1691,6 +1791,11 @@ final class MenuBarActionProxy: NSObject {
     @objc
     func handleShowHistory() {
         onShowHistory()
+    }
+
+    @objc
+    func handleOpenSettings() {
+        onOpenSettings()
     }
 
     @objc
@@ -1743,6 +1848,9 @@ final class FlowCloneService: @unchecked Sendable {
     private var englishModeMenuItem: NSMenuItem?
     private var hindiModeMenuItem: NSMenuItem?
     private var mixedModeMenuItem: NSMenuItem?
+    private var settingsMenuItem: NSMenuItem?
+    private var onboardingWindow: VaaniOnboardingWindowController?
+    private var settingsWindow: VaaniSettingsWindowController?
     private var menuActionProxy: MenuBarActionProxy?
     private var historyWindow: DictationHistoryWindow?
     private var activeContext = DictationContext(
@@ -1773,10 +1881,31 @@ final class FlowCloneService: @unchecked Sendable {
         PermissionGate.promptForInputMonitoring()
         PermissionGate.promptForMicrophone()
 
+        showOnboardingIfNeeded()
         startHotkeyListenerIfPossible()
         warmUpPipelineAsync()
         updateMenuBarState()
         NSApplication.shared.run()
+    }
+
+    @MainActor
+    private func showOnboardingIfNeeded() {
+        if UserDefaults.standard.bool(forKey: "vaani.onboarding.completed") {
+            return
+        }
+        let hasKey = (try? KeychainStore.read(service: config.keychainService, account: config.keychainAccount))?.isEmpty == false
+        if hasKey {
+            UserDefaults.standard.set(true, forKey: "vaani.onboarding.completed")
+            return
+        }
+        let window = VaaniOnboardingWindowController(configStore: configStore, initialConfig: config) { [weak self] updated in
+            guard let self else { return }
+            self.config = updated
+            self.persistConfig()
+            self.startHotkeyListenerIfPossible()
+        }
+        onboardingWindow = window
+        window.show()
     }
 
     private func startHotkeyListenerIfPossible() {
@@ -1995,7 +2124,14 @@ final class FlowCloneService: @unchecked Sendable {
                 }
 
                 let outputText = finalText
-                self.backupDictationText(outputText, appName: context.appName)
+                let pipelineLatencyMs = Int(Date().timeIntervalSince(transcribePipelineStartedAt) * 1000)
+                self.backupDictationText(
+                    outputText,
+                    appName: context.appName,
+                    model: config.geminiModel,
+                    modelLatencyMs: modelLatencyMs,
+                    pipelineLatencyMs: pipelineLatencyMs
+                )
 
                 if config.enableConfidenceGuard {
                     let words = FlowCloneService.wordCount(in: outputText)
@@ -2024,7 +2160,6 @@ final class FlowCloneService: @unchecked Sendable {
                         restoreDelayMs: config.clipboardRestoreDelayMs,
                         targetPID: context.processIdentifier
                     )
-                    let pipelineLatencyMs = Int(Date().timeIntervalSince(transcribePipelineStartedAt) * 1000)
                     print("Latency: model=\(modelLatencyMs)ms pipeline=\(pipelineLatencyMs)ms")
                     print("Inserted: \(outputText)")
                     let pipelineLabel = FlowCloneService.formattedLatency(pipelineLatencyMs)
@@ -2040,9 +2175,21 @@ final class FlowCloneService: @unchecked Sendable {
         }
     }
 
-    private func backupDictationText(_ text: String, appName: String) {
+    private func backupDictationText(
+        _ text: String,
+        appName: String,
+        model: String,
+        modelLatencyMs: Int?,
+        pipelineLatencyMs: Int?
+    ) {
         do {
-            let entries = try historyStore.append(text: text, appName: appName)
+            let entries = try historyStore.append(
+                text: text,
+                appName: appName,
+                model: model,
+                modelLatencyMs: modelLatencyMs,
+                pipelineLatencyMs: pipelineLatencyMs
+            )
             DispatchQueue.main.async {
                 self.historyWindow?.setEntries(entries)
             }
@@ -3228,6 +3375,9 @@ final class FlowCloneService: @unchecked Sendable {
             onShowHistory: { [weak self] in
                 self?.showHistoryFromMenu()
             },
+            onOpenSettings: { [weak self] in
+                self?.openSettingsFromMenu()
+            },
             onStopRecording: { [weak self] in
                 self?.stopRecordingFromMenu()
             },
@@ -3262,6 +3412,11 @@ final class FlowCloneService: @unchecked Sendable {
         menu.addItem(showHistory)
         self.showHistoryMenuItem = showHistory
 
+        let openSettings = NSMenuItem(title: "Settings...", action: #selector(MenuBarActionProxy.handleOpenSettings), keyEquivalent: ",")
+        openSettings.target = proxy
+        menu.addItem(openSettings)
+        self.settingsMenuItem = openSettings
+
         let languageModeMenu = NSMenu()
         let languageModeItem = NSMenuItem(title: "Language Mode", action: nil, keyEquivalent: "")
         languageModeItem.submenu = languageModeMenu
@@ -3291,6 +3446,32 @@ final class FlowCloneService: @unchecked Sendable {
 
         item.menu = menu
         self.statusItem = item
+    }
+
+    @MainActor
+    private func openSettingsFromMenu() {
+        if settingsWindow == nil {
+            settingsWindow = VaaniSettingsWindowController(
+                configStore: configStore,
+                initialConfig: config
+            ) { [weak self] updated in
+                guard let self else { return }
+                self.applyConfigFromSettings(updated)
+            }
+        }
+        settingsWindow?.show()
+    }
+
+    @MainActor
+    private func applyConfigFromSettings(_ updated: FlowConfig) {
+        let oldHotkey = config.hotkey
+        config = updated
+        persistConfig()
+        if oldHotkey.keyCode != updated.hotkey.keyCode || oldHotkey.modifiers != updated.hotkey.modifiers {
+            stopHotkeyListener()
+            startHotkeyListenerIfPossible()
+        }
+        updateMenuBarState()
     }
 
     @MainActor
