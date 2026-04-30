@@ -110,11 +110,14 @@ enum AudioInputDeviceManager {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var cfString: CFString = "" as CFString
-        var dataSize = UInt32(MemoryLayout<CFString>.size)
-        let status = AudioObjectGetPropertyData(objectID, &address, 0, nil, &dataSize, &cfString)
-        guard status == noErr else { return nil }
-        return cfString as String
+        var cfString: CFString?
+        var dataSize = UInt32(MemoryLayout<CFString?>.size)
+        let status: OSStatus = withUnsafeMutablePointer(to: &cfString) { ptr in
+            ptr.withMemoryRebound(to: UInt8.self, capacity: Int(dataSize)) { rawPtr in
+                AudioObjectGetPropertyData(objectID, &address, 0, nil, &dataSize, rawPtr)
+            }
+        }
+        guard status == noErr, let value = cfString else { return nil }
+        return value as String
     }
 }
-
