@@ -14,7 +14,7 @@ enum UpdateChecker {
     static func check(
         latestReleaseAPIURL: String,
         releasesPageURL: String,
-        completion: @escaping (Result<Status, Error>) -> Void
+        completion: @escaping @Sendable (Result<Status, Error>) -> Void
     ) {
         guard let url = URL(string: latestReleaseAPIURL) else {
             completion(.failure(NSError(domain: "UpdateChecker", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid updates URL"])))
@@ -80,4 +80,3 @@ enum UpdateChecker {
         v.split(separator: ".").map { Int($0.filter(\.isNumber)) ?? 0 }
     }
 }
-
