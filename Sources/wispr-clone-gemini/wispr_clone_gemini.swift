@@ -116,6 +116,7 @@ struct FlowConfig: Codable {
     var licenseMode: VaaniLicenseVerifier.Mode
     var trialDays: Int
     var licensePublicKeyBase64: String?
+    var purchaseURL: String
     var stripFillers: Bool
     var autoPunctuation: Bool
     var convertSpokenFormattingCommands: Bool
@@ -156,6 +157,7 @@ struct FlowConfig: Codable {
         case licenseMode
         case trialDays
         case licensePublicKeyBase64
+        case purchaseURL
         case stripFillers
         case autoPunctuation
         case convertSpokenFormattingCommands
@@ -202,6 +204,7 @@ struct FlowConfig: Codable {
             licenseMode: .trial,
             trialDays: 7,
             licensePublicKeyBase64: nil,
+            purchaseURL: "https://your-website.example.com/pricing",
             stripFillers: true,
             autoPunctuation: true,
             convertSpokenFormattingCommands: true,
@@ -259,6 +262,7 @@ struct FlowConfig: Codable {
         licenseMode: VaaniLicenseVerifier.Mode,
         trialDays: Int,
         licensePublicKeyBase64: String?,
+        purchaseURL: String,
         stripFillers: Bool,
         autoPunctuation: Bool,
         convertSpokenFormattingCommands: Bool,
@@ -298,6 +302,7 @@ struct FlowConfig: Codable {
         self.licenseMode = licenseMode
         self.trialDays = trialDays
         self.licensePublicKeyBase64 = licensePublicKeyBase64
+        self.purchaseURL = purchaseURL
         self.stripFillers = stripFillers
         self.autoPunctuation = autoPunctuation
         self.convertSpokenFormattingCommands = convertSpokenFormattingCommands
@@ -342,6 +347,7 @@ struct FlowConfig: Codable {
         self.licenseMode = try container.decodeIfPresent(VaaniLicenseVerifier.Mode.self, forKey: .licenseMode) ?? defaults.licenseMode
         self.trialDays = try container.decodeIfPresent(Int.self, forKey: .trialDays) ?? defaults.trialDays
         self.licensePublicKeyBase64 = try container.decodeIfPresent(String.self, forKey: .licensePublicKeyBase64) ?? defaults.licensePublicKeyBase64
+        self.purchaseURL = try container.decodeIfPresent(String.self, forKey: .purchaseURL) ?? defaults.purchaseURL
         self.stripFillers = try container.decodeIfPresent(Bool.self, forKey: .stripFillers) ?? defaults.stripFillers
         self.autoPunctuation = try container.decodeIfPresent(Bool.self, forKey: .autoPunctuation) ?? defaults.autoPunctuation
         self.convertSpokenFormattingCommands = try container.decodeIfPresent(Bool.self, forKey: .convertSpokenFormattingCommands) ?? defaults.convertSpokenFormattingCommands
@@ -3772,7 +3778,9 @@ final class FlowCloneService: @unchecked Sendable {
     @MainActor
     private func openLicenseFromMenu() {
         if licenseWindow == nil {
-            licenseWindow = VaaniLicenseWindowController()
+            licenseWindow = VaaniLicenseWindowController(configStore: configStore, initialConfig: config)
+        } else {
+            licenseWindow?.updateConfig(config)
         }
         licenseWindow?.show()
     }
