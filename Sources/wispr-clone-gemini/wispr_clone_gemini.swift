@@ -110,6 +110,9 @@ struct FlowConfig: Codable {
     var enableOfflineWhisperFallback: Bool
     var offlineWhisperBinaryPath: String?
     var offlineWhisperModelPath: String?
+    var updatesEnabled: Bool
+    var updatesLatestReleaseAPIURL: String
+    var updatesReleasesPageURL: String
     var stripFillers: Bool
     var autoPunctuation: Bool
     var convertSpokenFormattingCommands: Bool
@@ -144,6 +147,9 @@ struct FlowConfig: Codable {
         case enableOfflineWhisperFallback
         case offlineWhisperBinaryPath
         case offlineWhisperModelPath
+        case updatesEnabled
+        case updatesLatestReleaseAPIURL
+        case updatesReleasesPageURL
         case stripFillers
         case autoPunctuation
         case convertSpokenFormattingCommands
@@ -184,6 +190,9 @@ struct FlowConfig: Codable {
             enableOfflineWhisperFallback: false,
             offlineWhisperBinaryPath: nil,
             offlineWhisperModelPath: nil,
+            updatesEnabled: true,
+            updatesLatestReleaseAPIURL: "https://api.github.com/repos/jay8860/WisprCloneIOS/releases/latest",
+            updatesReleasesPageURL: "https://github.com/jay8860/WisprCloneIOS/releases/latest",
             stripFillers: true,
             autoPunctuation: true,
             convertSpokenFormattingCommands: true,
@@ -235,6 +244,9 @@ struct FlowConfig: Codable {
         enableOfflineWhisperFallback: Bool,
         offlineWhisperBinaryPath: String?,
         offlineWhisperModelPath: String?,
+        updatesEnabled: Bool,
+        updatesLatestReleaseAPIURL: String,
+        updatesReleasesPageURL: String,
         stripFillers: Bool,
         autoPunctuation: Bool,
         convertSpokenFormattingCommands: Bool,
@@ -268,6 +280,9 @@ struct FlowConfig: Codable {
         self.enableOfflineWhisperFallback = enableOfflineWhisperFallback
         self.offlineWhisperBinaryPath = offlineWhisperBinaryPath
         self.offlineWhisperModelPath = offlineWhisperModelPath
+        self.updatesEnabled = updatesEnabled
+        self.updatesLatestReleaseAPIURL = updatesLatestReleaseAPIURL
+        self.updatesReleasesPageURL = updatesReleasesPageURL
         self.stripFillers = stripFillers
         self.autoPunctuation = autoPunctuation
         self.convertSpokenFormattingCommands = convertSpokenFormattingCommands
@@ -306,6 +321,9 @@ struct FlowConfig: Codable {
         self.enableOfflineWhisperFallback = try container.decodeIfPresent(Bool.self, forKey: .enableOfflineWhisperFallback) ?? defaults.enableOfflineWhisperFallback
         self.offlineWhisperBinaryPath = try container.decodeIfPresent(String.self, forKey: .offlineWhisperBinaryPath) ?? defaults.offlineWhisperBinaryPath
         self.offlineWhisperModelPath = try container.decodeIfPresent(String.self, forKey: .offlineWhisperModelPath) ?? defaults.offlineWhisperModelPath
+        self.updatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .updatesEnabled) ?? defaults.updatesEnabled
+        self.updatesLatestReleaseAPIURL = try container.decodeIfPresent(String.self, forKey: .updatesLatestReleaseAPIURL) ?? defaults.updatesLatestReleaseAPIURL
+        self.updatesReleasesPageURL = try container.decodeIfPresent(String.self, forKey: .updatesReleasesPageURL) ?? defaults.updatesReleasesPageURL
         self.stripFillers = try container.decodeIfPresent(Bool.self, forKey: .stripFillers) ?? defaults.stripFillers
         self.autoPunctuation = try container.decodeIfPresent(Bool.self, forKey: .autoPunctuation) ?? defaults.autoPunctuation
         self.convertSpokenFormattingCommands = try container.decodeIfPresent(Bool.self, forKey: .convertSpokenFormattingCommands) ?? defaults.convertSpokenFormattingCommands
@@ -1897,6 +1915,8 @@ final class MenuBarActionProxy: NSObject {
     let onToggle: () -> Void
     let onShowHistory: () -> Void
     let onOpenSettings: () -> Void
+    let onOpenLicense: () -> Void
+    let onCheckForUpdates: () -> Void
     let onStopRecording: () -> Void
     let onSelectEnglishMode: () -> Void
     let onSelectHindiMode: () -> Void
@@ -1907,6 +1927,8 @@ final class MenuBarActionProxy: NSObject {
         onToggle: @escaping () -> Void,
         onShowHistory: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
+        onOpenLicense: @escaping () -> Void,
+        onCheckForUpdates: @escaping () -> Void,
         onStopRecording: @escaping () -> Void,
         onSelectEnglishMode: @escaping () -> Void,
         onSelectHindiMode: @escaping () -> Void,
@@ -1916,6 +1938,8 @@ final class MenuBarActionProxy: NSObject {
         self.onToggle = onToggle
         self.onShowHistory = onShowHistory
         self.onOpenSettings = onOpenSettings
+        self.onOpenLicense = onOpenLicense
+        self.onCheckForUpdates = onCheckForUpdates
         self.onStopRecording = onStopRecording
         self.onSelectEnglishMode = onSelectEnglishMode
         self.onSelectHindiMode = onSelectHindiMode
@@ -1936,6 +1960,16 @@ final class MenuBarActionProxy: NSObject {
     @objc
     func handleOpenSettings() {
         onOpenSettings()
+    }
+
+    @objc
+    func handleOpenLicense() {
+        onOpenLicense()
+    }
+
+    @objc
+    func handleCheckForUpdates() {
+        onCheckForUpdates()
     }
 
     @objc
@@ -1991,6 +2025,7 @@ final class FlowCloneService: @unchecked Sendable {
     private var settingsMenuItem: NSMenuItem?
     private var onboardingWindow: VaaniOnboardingWindowController?
     private var settingsWindow: VaaniSettingsWindowController?
+    private var licenseWindow: VaaniLicenseWindowController?
     private var menuActionProxy: MenuBarActionProxy?
     private var historyWindow: DictationHistoryWindow?
     private var previousDefaultInputDevice: AudioDeviceID?
@@ -3570,6 +3605,12 @@ final class FlowCloneService: @unchecked Sendable {
             onOpenSettings: { [weak self] in
                 self?.openSettingsFromMenu()
             },
+            onOpenLicense: { [weak self] in
+                self?.openLicenseFromMenu()
+            },
+            onCheckForUpdates: { [weak self] in
+                self?.checkForUpdatesFromMenu()
+            },
             onStopRecording: { [weak self] in
                 self?.stopRecordingFromMenu()
             },
@@ -3608,6 +3649,14 @@ final class FlowCloneService: @unchecked Sendable {
         openSettings.target = proxy
         menu.addItem(openSettings)
         self.settingsMenuItem = openSettings
+
+        let openLicense = NSMenuItem(title: "License...", action: #selector(MenuBarActionProxy.handleOpenLicense), keyEquivalent: "l")
+        openLicense.target = proxy
+        menu.addItem(openLicense)
+
+        let checkUpdates = NSMenuItem(title: "Check for Updates...", action: #selector(MenuBarActionProxy.handleCheckForUpdates), keyEquivalent: "u")
+        checkUpdates.target = proxy
+        menu.addItem(checkUpdates)
 
         let languageModeMenu = NSMenu()
         let languageModeItem = NSMenuItem(title: "Language Mode", action: nil, keyEquivalent: "")
@@ -3652,6 +3701,49 @@ final class FlowCloneService: @unchecked Sendable {
             }
         }
         settingsWindow?.show()
+    }
+
+    @MainActor
+    private func openLicenseFromMenu() {
+        if licenseWindow == nil {
+            licenseWindow = VaaniLicenseWindowController()
+        }
+        licenseWindow?.show()
+    }
+
+    @MainActor
+    private func checkForUpdatesFromMenu() {
+        guard config.updatesEnabled else {
+            VisualCueHUD.shared.show(message: "Updates Disabled", color: .systemGray, autoHideAfter: 1.0)
+            return
+        }
+        VisualCueHUD.shared.show(message: "Checking for Updates…", color: .systemBlue, autoHideAfter: 1.0)
+        UpdateChecker.check(
+            latestReleaseAPIURL: config.updatesLatestReleaseAPIURL,
+            releasesPageURL: config.updatesReleasesPageURL
+        ) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .failure:
+                    VisualCueHUD.shared.show(message: "Update Check Failed", color: .systemRed, autoHideAfter: 1.2)
+                case .success(let status):
+                    switch status {
+                    case .upToDate(let version):
+                        VisualCueHUD.shared.show(message: "Up to date (\(version))", color: .systemGreen, autoHideAfter: 1.1)
+                    case .updateAvailable(let current, let latest, let url):
+                        let alert = NSAlert()
+                        alert.messageText = "Update Available"
+                        alert.informativeText = "Current: \(current)\nLatest: \(latest)"
+                        alert.addButton(withTitle: "Open Download Page")
+                        alert.addButton(withTitle: "Later")
+                        let response = alert.runModal()
+                        if response == .alertFirstButtonReturn {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @MainActor

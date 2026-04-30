@@ -70,6 +70,19 @@ zsh scripts/build_app_bundle.sh
 zsh scripts/build_dmg.sh
 ```
 
+## License + Updates
+- Menu bar now includes `License...` (stores key in Keychain) and `Check for Updates...` (checks latest GitHub release).
+- Update settings are in `config.json`:
+  - `updatesEnabled`
+  - `updatesLatestReleaseAPIURL`
+  - `updatesReleasesPageURL`
+
+## Production Release (Notarized DMG)
+This repo includes a notarization script scaffold:
+`/Users/jayantnahata/Desktop/ChatGPT Codex Folder/wispr-clone-gemini/scripts/release_build_notarized_dmg.sh`
+
+It requires `Developer ID Application` signing and notarization credentials.
+
 ## Permissions required (macOS)
 - Accessibility
 - Input Monitoring

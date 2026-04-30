@@ -9,6 +9,8 @@ CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BIN_NAME="wispr-clone-gemini"
+APP_VERSION="${APP_VERSION:-1.0}"
+APP_BUILD_NUMBER="${APP_BUILD_NUMBER:-1}"
 
 cd "$ROOT_DIR"
 
@@ -38,9 +40,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>'"$APP_VERSION"'</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>'"$APP_BUILD_NUMBER"'</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>LSUIElement</key>
