@@ -63,7 +63,7 @@ enum OfflineWhisperClient {
     private static func makeOutputBaseURL() -> URL {
         // whisper.cpp writes `<base>.txt` for -otxt
         let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("wispr-clone-gemini", isDirectory: true)
+            .appendingPathComponent("speakdash", isDirectory: true)
             .appendingPathComponent("offline-whisper-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: base.deletingLastPathComponent(), withIntermediateDirectories: true)
         return base

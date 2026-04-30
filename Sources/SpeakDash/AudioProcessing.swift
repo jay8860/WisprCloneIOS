@@ -27,7 +27,7 @@ enum AudioProcessing {
         guard inputWAV.pathExtension.lowercased() == "wav" else { return nil }
 
         let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("wispr-clone-gemini", isDirectory: true)
+            .appendingPathComponent("speakdash", isDirectory: true)
             .appendingPathComponent("dictation-\(UUID().uuidString).m4a")
 
         try? FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)

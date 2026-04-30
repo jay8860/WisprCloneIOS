@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Wispr Clone Gemini"
+APP_NAME="SpeakDash"
 UPDATES_DIR="$ROOT_DIR/release/updates"
 
 APP_VERSION="${APP_VERSION:-$(git describe --tags --always 2>/dev/null | sed 's/^v//')}"

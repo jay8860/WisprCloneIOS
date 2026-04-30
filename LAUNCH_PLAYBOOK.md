@@ -13,7 +13,7 @@ Your app’s `SUFeedURL` should point to:
 ## 2) Generate Sparkle update keys (one-time, on your Mac)
 1. Build once (this fetches Sparkle tools):
 ```bash
-cd "/Users/jayantnahata/Desktop/ChatGPT Codex Folder/wispr-clone-gemini"
+cd "/Users/jayantnahata/Desktop/ChatGPT Codex Folder/speakdash"
 zsh scripts/build_app_bundle.sh
 ```
 2. Generate/print your Sparkle public key:
@@ -24,14 +24,14 @@ Copy the printed `SUPublicEDKey` into your release build env as `SPARKLE_PUBLIC_
 
 ## 3) Make a release “website drop” folder (DMG + appcast)
 ```bash
-cd "/Users/jayantnahata/Desktop/ChatGPT Codex Folder/wispr-clone-gemini"
+cd "/Users/jayantnahata/Desktop/ChatGPT Codex Folder/speakdash"
 export SPARKLE_FEED_URL="https://YOUR-DOWNLOAD-DOMAIN/appcast.xml"
 export SPARKLE_PUBLIC_ED_KEY="PASTE_FROM_generate_keys"
 zsh scripts/release_prepare_website_drop.sh
 ```
 
 Upload everything in:
-`/Users/jayantnahata/Desktop/ChatGPT Codex Folder/wispr-clone-gemini/release/updates`
+`/Users/jayantnahata/Desktop/ChatGPT Codex Folder/speakdash/release/updates`
 to your download host.
 
 ## 4) Payments + instant delivery

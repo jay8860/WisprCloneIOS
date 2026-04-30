@@ -1,9 +1,9 @@
 import Foundation
 
-final class VaaniLogger: @unchecked Sendable {
-    static let shared = VaaniLogger()
+final class SpeakDashLogger: @unchecked Sendable {
+    static let shared = SpeakDashLogger()
 
-    private let queue = DispatchQueue(label: "vaani.logger.queue")
+    private let queue = DispatchQueue(label: "speakdash.logger.queue")
     private var fileHandle: FileHandle?
     private(set) var logFileURL: URL?
 
@@ -11,7 +11,7 @@ final class VaaniLogger: @unchecked Sendable {
         queue.sync {
             do {
                 try FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
-                let fileURL = logsDirectory.appendingPathComponent("vaani.log")
+                let fileURL = logsDirectory.appendingPathComponent("speakdash.log")
                 if !FileManager.default.fileExists(atPath: fileURL.path) {
                     FileManager.default.createFile(atPath: fileURL.path, contents: nil)
                 }

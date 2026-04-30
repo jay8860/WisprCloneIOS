@@ -113,7 +113,7 @@ struct FlowConfig: Codable {
     var updatesEnabled: Bool
     var updatesLatestReleaseAPIURL: String
     var updatesReleasesPageURL: String
-    var licenseMode: VaaniLicenseVerifier.Mode
+    var licenseMode: SpeakDashLicenseVerifier.Mode
     var trialDays: Int
     var licensePublicKeyBase64: String?
     var purchaseURL: String
@@ -180,7 +180,7 @@ struct FlowConfig: Codable {
     static func `default`() -> FlowConfig {
         FlowConfig(
             apiKeyEnvVar: "GEMINI_API_KEY",
-            keychainService: "wispr-clone-gemini",
+            keychainService: "speakdash",
             keychainAccount: "gemini_api_key",
             geminiModel: "gemini-3.1-flash-lite-preview",
             languageHint: "en-US",
@@ -259,7 +259,7 @@ struct FlowConfig: Codable {
         updatesEnabled: Bool,
         updatesLatestReleaseAPIURL: String,
         updatesReleasesPageURL: String,
-        licenseMode: VaaniLicenseVerifier.Mode,
+        licenseMode: SpeakDashLicenseVerifier.Mode,
         trialDays: Int,
         licensePublicKeyBase64: String?,
         purchaseURL: String,
@@ -344,7 +344,7 @@ struct FlowConfig: Codable {
         self.updatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .updatesEnabled) ?? defaults.updatesEnabled
         self.updatesLatestReleaseAPIURL = try container.decodeIfPresent(String.self, forKey: .updatesLatestReleaseAPIURL) ?? defaults.updatesLatestReleaseAPIURL
         self.updatesReleasesPageURL = try container.decodeIfPresent(String.self, forKey: .updatesReleasesPageURL) ?? defaults.updatesReleasesPageURL
-        self.licenseMode = try container.decodeIfPresent(VaaniLicenseVerifier.Mode.self, forKey: .licenseMode) ?? defaults.licenseMode
+        self.licenseMode = try container.decodeIfPresent(SpeakDashLicenseVerifier.Mode.self, forKey: .licenseMode) ?? defaults.licenseMode
         self.trialDays = try container.decodeIfPresent(Int.self, forKey: .trialDays) ?? defaults.trialDays
         self.licensePublicKeyBase64 = try container.decodeIfPresent(String.self, forKey: .licensePublicKeyBase64) ?? defaults.licensePublicKeyBase64
         self.purchaseURL = try container.decodeIfPresent(String.self, forKey: .purchaseURL) ?? defaults.purchaseURL
@@ -375,7 +375,7 @@ final class ConfigStore {
 
     init() {
         let baseDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".wispr-clone-gemini", isDirectory: true)
+            .appendingPathComponent(".speakdash", isDirectory: true)
         self.configURL = baseDir.appendingPathComponent("config.json")
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
@@ -1000,7 +1000,7 @@ final class DictationRecorder {
         }
 
         let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("wispr-clone-gemini", isDirectory: true)
+            .appendingPathComponent("speakdash", isDirectory: true)
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         let fileURL = base.appendingPathComponent("dictation-\(UUID().uuidString).wav")
 
@@ -2055,10 +2055,10 @@ final class FlowCloneService: @unchecked Sendable {
     private var hindiModeMenuItem: NSMenuItem?
     private var mixedModeMenuItem: NSMenuItem?
     private var settingsMenuItem: NSMenuItem?
-    private var onboardingWindow: VaaniOnboardingWindowController?
-    private var settingsWindow: VaaniSettingsWindowController?
-    private var licenseWindow: VaaniLicenseWindowController?
-    private var sparkleUpdater: VaaniSparkleUpdater?
+    private var onboardingWindow: SpeakDashOnboardingWindowController?
+    private var settingsWindow: SpeakDashSettingsWindowController?
+    private var licenseWindow: SpeakDashLicenseWindowController?
+    private var sparkleUpdater: SpeakDashSparkleUpdater?
     private var menuActionProxy: MenuBarActionProxy?
     private var historyWindow: DictationHistoryWindow?
     private var previousDefaultInputDevice: AudioDeviceID?
@@ -2083,9 +2083,9 @@ final class FlowCloneService: @unchecked Sendable {
     func run() throws {
         _ = NSApplication.shared
         _ = NSApplication.shared.setActivationPolicy(.accessory)
-        VaaniLogger.shared.bootstrap(logsDirectory: logsDirectoryURL)
-        VaaniLogger.shared.log("app_started version=\(AppVersion.displayString)")
-        sparkleUpdater = VaaniSparkleUpdater()
+        SpeakDashLogger.shared.bootstrap(logsDirectory: logsDirectoryURL)
+        SpeakDashLogger.shared.log("app_started version=\(AppVersion.displayString)")
+        sparkleUpdater = SpeakDashSparkleUpdater()
         setupStatusBarMenu()
         let historyWindow = ensureHistoryWindow()
         historyWindow.setEntries(loadHistoryEntries())
@@ -2106,15 +2106,15 @@ final class FlowCloneService: @unchecked Sendable {
 
     @MainActor
     private func showOnboardingIfNeeded() {
-        if UserDefaults.standard.bool(forKey: "vaani.onboarding.completed") {
+        if UserDefaults.standard.bool(forKey: "speakdash.onboarding.completed") {
             return
         }
         let hasKey = (try? KeychainStore.read(service: config.keychainService, account: config.keychainAccount))?.isEmpty == false
         if hasKey {
-            UserDefaults.standard.set(true, forKey: "vaani.onboarding.completed")
+            UserDefaults.standard.set(true, forKey: "speakdash.onboarding.completed")
             return
         }
-        let window = VaaniOnboardingWindowController(configStore: configStore, initialConfig: config) { [weak self] updated in
+        let window = SpeakDashOnboardingWindowController(configStore: configStore, initialConfig: config) { [weak self] updated in
             guard let self else { return }
             self.config = updated
             self.persistConfig()
@@ -2226,7 +2226,7 @@ final class FlowCloneService: @unchecked Sendable {
     }
 
     private func printStartup() {
-        print("Wispr Clone Gemini started")
+        print("SpeakDash started")
         print("Config: \(configStore.configURL.path)")
         print("Model: \(config.geminiModel)")
         print("Language hint: \(config.languageHint)")
@@ -2316,14 +2316,14 @@ final class FlowCloneService: @unchecked Sendable {
             return true
         case .trial:
             let license = LicenseManager.readKey()
-            let verified = VaaniLicenseVerifier.verify(licenseKey: license, publicKeyBase64: config.licensePublicKeyBase64)
+            let verified = SpeakDashLicenseVerifier.verify(licenseKey: license, publicKeyBase64: config.licensePublicKeyBase64)
             if verified.isValid {
                 return true
             }
-            return VaaniLicenseVerifier.isTrialValid(trialDays: config.trialDays)
+            return SpeakDashLicenseVerifier.isTrialValid(trialDays: config.trialDays)
         case .required:
             let license = LicenseManager.readKey()
-            let verified = VaaniLicenseVerifier.verify(licenseKey: license, publicKeyBase64: config.licensePublicKeyBase64)
+            let verified = SpeakDashLicenseVerifier.verify(licenseKey: license, publicKeyBase64: config.licensePublicKeyBase64)
             return verified.isValid
         }
     }
@@ -3753,7 +3753,7 @@ final class FlowCloneService: @unchecked Sendable {
 
         menu.addItem(NSMenuItem.separator())
 
-        let quit = NSMenuItem(title: "Quit Wispr Clone", action: #selector(MenuBarActionProxy.handleQuit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit SpeakDash", action: #selector(MenuBarActionProxy.handleQuit), keyEquivalent: "q")
         quit.target = proxy
         menu.addItem(quit)
 
@@ -3764,7 +3764,7 @@ final class FlowCloneService: @unchecked Sendable {
     @MainActor
     private func openSettingsFromMenu() {
         if settingsWindow == nil {
-            settingsWindow = VaaniSettingsWindowController(
+            settingsWindow = SpeakDashSettingsWindowController(
                 configStore: configStore,
                 initialConfig: config
             ) { [weak self] updated in
@@ -3778,7 +3778,7 @@ final class FlowCloneService: @unchecked Sendable {
     @MainActor
     private func openLicenseFromMenu() {
         if licenseWindow == nil {
-            licenseWindow = VaaniLicenseWindowController(configStore: configStore, initialConfig: config)
+            licenseWindow = SpeakDashLicenseWindowController(configStore: configStore, initialConfig: config)
         } else {
             licenseWindow?.updateConfig(config)
         }
@@ -3798,8 +3798,8 @@ final class FlowCloneService: @unchecked Sendable {
     private func exportDiagnosticsFromMenu() {
         let configURL = configStore.configURL
         let historyURL = configStore.configURL.deletingLastPathComponent().appendingPathComponent("history.json")
-        let logURL = VaaniLogger.shared.logFileURL
-        VaaniDiagnostics.export(configURL: configURL, historyURL: historyURL, logURL: logURL) { result in
+        let logURL = SpeakDashLogger.shared.logFileURL
+        SpeakDashDiagnostics.export(configURL: configURL, historyURL: historyURL, logURL: logURL) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .failure:
@@ -3990,7 +3990,7 @@ enum StartupCommand {
 }
 
 @main
-struct WisprCloneGeminiMain {
+struct SpeakDashMain {
     private static func parseCommand(arguments: [String]) throws -> StartupCommand {
         guard let first = arguments.first else { return .run }
 
@@ -4019,11 +4019,11 @@ struct WisprCloneGeminiMain {
 
     private static func printUsage() {
         print("""
-        wispr-clone-gemini usage:
+        speakdash usage:
           swift run
-          swift run wispr-clone-gemini --set-api-key <KEY>               (less secure: may end up in shell history)
-          printf '%s' 'KEY' | swift run wispr-clone-gemini --set-api-key-stdin
-          swift run wispr-clone-gemini --clear-api-key
+          swift run speakdash --set-api-key <KEY>               (less secure: may end up in shell history)
+          printf '%s' 'KEY' | swift run speakdash --set-api-key-stdin
+          swift run speakdash --clear-api-key
         """)
     }
 

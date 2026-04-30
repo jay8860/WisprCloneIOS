@@ -1,7 +1,7 @@
 import Foundation
 
 enum LicenseManager {
-    private static let service = "wispr-clone-gemini"
+    private static let service = "speakdash"
     private static let account = "license_key"
 
     static func readKey() -> String? {

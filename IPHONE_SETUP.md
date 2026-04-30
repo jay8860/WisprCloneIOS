@@ -10,13 +10,13 @@ Apple iOS does not provide a public way for third-party keyboard extensions to r
 From project root:
 
 ```bash
-cd /Users/jayantnahata/Desktop/ChatGPT\ Codex\ Folder/wispr-clone-gemini
-printf '%s' 'YOUR_GEMINI_KEY' | swift run wispr-clone-gemini --set-api-key-stdin
+cd /Users/jayantnahata/Desktop/ChatGPT\ Codex\ Folder/speakdash
+printf '%s' 'YOUR_GEMINI_KEY' | swift run speakdash --set-api-key-stdin
 ```
 
 ## 2. On Mac: start relay
 ```bash
-export GEMINI_API_KEY="$(security find-generic-password -s wispr-clone-gemini -a gemini_api_key -w)"
+export GEMINI_API_KEY="$(security find-generic-password -s speakdash -a gemini_api_key -w)"
 export RELAY_PORT=8787
 node relay/gemini_relay.js
 ```

@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-enum VaaniLicenseVerifier {
+enum SpeakDashLicenseVerifier {
     enum Mode: String, Codable {
         case off
         case trial
@@ -61,7 +61,7 @@ enum VaaniLicenseVerifier {
     }
 
     static func ensureTrialStart() -> Date {
-        let key = "vaani.trial.start"
+        let key = "speakdash.trial.start"
         if let existing = UserDefaults.standard.object(forKey: key) as? Date {
             return existing
         }

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Wispr Clone Gemini"
+APP_NAME="SpeakDash"
 APP_BUNDLE="$ROOT_DIR/dist/${APP_NAME}.app"
 DMG_PATH="$ROOT_DIR/dist/${APP_NAME}.dmg"
 

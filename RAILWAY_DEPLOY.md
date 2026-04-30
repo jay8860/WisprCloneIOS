@@ -3,7 +3,7 @@
 ## 1) Create GitHub repo from this folder
 
 ```bash
-cd "/Users/jayantnahata/Desktop/ChatGPT Codex Folder/wispr-clone-gemini-ios/proxy-example"
+cd "/Users/jayantnahata/Desktop/ChatGPT Codex Folder/speakdash-ios/proxy-example"
 git init
 git add .
 git commit -m "Initial wispr gemini proxy"

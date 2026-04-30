@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 @MainActor
-final class VaaniSettingsWindowController: NSWindowController {
+final class SpeakDashSettingsWindowController: NSWindowController {
     struct ModelOption {
         let title: String
         let value: String
@@ -65,7 +65,7 @@ final class VaaniSettingsWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Vaani Settings"
+        window.title = "SpeakDash Settings"
         window.isReleasedWhenClosed = false
 
         let root = NSView(frame: frame)

@@ -2,17 +2,17 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Wispr Clone Gemini"
-APP_BUNDLE_ID="com.jayantnahata.wispr-clone-gemini"
+APP_NAME="SpeakDash"
+APP_BUNDLE_ID="ai.quantsummit.speakdash"
 APP_BUNDLE="$ROOT_DIR/dist/${APP_NAME}.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
-BIN_NAME="wispr-clone-gemini"
+BIN_NAME="SpeakDash"
 APP_VERSION="${APP_VERSION:-1.0}"
 APP_BUILD_NUMBER="${APP_BUILD_NUMBER:-1}"
-SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://raw.githubusercontent.com/jay8860/WisprCloneIOS/main/appcast.xml}"
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://speakdash.app/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-}"
 
 cd "$ROOT_DIR"
@@ -38,13 +38,13 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>wispr-clone-gemini</string>
+  <string>speakdash</string>
   <key>CFBundleIdentifier</key>
-  <string>com.jayantnahata.wispr-clone-gemini</string>
+  <string>ai.quantsummit.speakdash</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Wispr Clone Gemini</string>
+  <string>SpeakDash</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

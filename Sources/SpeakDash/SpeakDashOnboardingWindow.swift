@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 @MainActor
-final class VaaniOnboardingWindowController: NSWindowController {
+final class SpeakDashOnboardingWindowController: NSWindowController {
     private let configStore: ConfigStore
     private var config: FlowConfig
     private let onFinished: (FlowConfig) -> Void
@@ -44,7 +44,7 @@ final class VaaniOnboardingWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Welcome to Vaani"
+        window.title = "Welcome to SpeakDash"
         window.isReleasedWhenClosed = false
 
         let root = NSView(frame: frame)
@@ -125,9 +125,9 @@ final class VaaniOnboardingWindowController: NSWindowController {
 
         switch stepIndex {
         case 0:
-            titleLabel.stringValue = "Vaani is ready to dictate"
+            titleLabel.stringValue = "SpeakDash is ready to dictate"
             bodyLabel.stringValue =
-                "Vaani lets you hold a hotkey, speak, and paste the transcription into any app. " +
+                "SpeakDash lets you hold a hotkey, speak, and paste the transcription into any app. " +
                 "We will set up permissions and your Gemini API key now."
             nextButton.title = "Next"
         case 1:
@@ -200,7 +200,7 @@ final class VaaniOnboardingWindowController: NSWindowController {
             return
         }
 
-        UserDefaults.standard.set(true, forKey: "vaani.onboarding.completed")
+        UserDefaults.standard.set(true, forKey: "speakdash.onboarding.completed")
         onFinished(config)
         window?.close()
     }

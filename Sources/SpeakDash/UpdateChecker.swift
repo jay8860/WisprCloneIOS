@@ -23,7 +23,7 @@ enum UpdateChecker {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("WisprCloneGemini/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("SpeakDash/1.0", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 6
 
         URLSession.shared.dataTask(with: request) { data, _, error in

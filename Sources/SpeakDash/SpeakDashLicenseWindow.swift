@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 @MainActor
-final class VaaniLicenseWindowController: NSWindowController {
+final class SpeakDashLicenseWindowController: NSWindowController {
     private let configStore: ConfigStore
     private var config: FlowConfig
     private var keyField: NSSecureTextField!
@@ -47,7 +47,7 @@ final class VaaniLicenseWindowController: NSWindowController {
         root.translatesAutoresizingMaskIntoConstraints = false
         window.contentView = root
 
-        let title = NSTextField(labelWithString: "Activate Wispr Clone Gemini")
+        let title = NSTextField(labelWithString: "Activate SpeakDash")
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
         title.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(title)
@@ -139,7 +139,7 @@ final class VaaniLicenseWindowController: NSWindowController {
         let existing = LicenseManager.readKey() ?? ""
         keyField.stringValue = existing
 
-        let verified = VaaniLicenseVerifier.verify(licenseKey: existing, publicKeyBase64: config.licensePublicKeyBase64)
+        let verified = SpeakDashLicenseVerifier.verify(licenseKey: existing, publicKeyBase64: config.licensePublicKeyBase64)
         if verified.isValid {
             statusLabel.stringValue = "Activated"
             statusLabel.textColor = .systemGreen
@@ -149,9 +149,9 @@ final class VaaniLicenseWindowController: NSWindowController {
                 statusLabel.stringValue = "Licensing: off"
                 statusLabel.textColor = .secondaryLabelColor
             case .trial:
-                let ok = VaaniLicenseVerifier.isTrialValid(trialDays: config.trialDays)
+                let ok = SpeakDashLicenseVerifier.isTrialValid(trialDays: config.trialDays)
                 if ok {
-                    let start = VaaniLicenseVerifier.ensureTrialStart()
+                    let start = SpeakDashLicenseVerifier.ensureTrialStart()
                     let deadline = start.addingTimeInterval(Double(max(0, config.trialDays)) * 24 * 3600)
                     let remaining = Int(max(0, deadline.timeIntervalSinceNow) / (24 * 3600))
                     statusLabel.stringValue = "Trial active (\(remaining)d left)"

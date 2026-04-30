@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
-enum VaaniDiagnostics {
+enum SpeakDashDiagnostics {
     @MainActor
     static func export(
         configURL: URL,
@@ -12,7 +12,7 @@ enum VaaniDiagnostics {
     ) {
         let panel = NSSavePanel()
         panel.title = "Export Diagnostics"
-        panel.nameFieldStringValue = "WisprCloneGemini-Diagnostics.zip"
+        panel.nameFieldStringValue = "SpeakDash-Diagnostics.zip"
         panel.allowedContentTypes = [UTType.zip]
         panel.canCreateDirectories = true
 
@@ -25,13 +25,13 @@ enum VaaniDiagnostics {
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let tempDir = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("wispr-clone-gemini-diag-\(UUID().uuidString)", isDirectory: true)
+                        .appendingPathComponent("speakdash-diag-\(UUID().uuidString)", isDirectory: true)
                     try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
                     try copyIfExists(configURL, to: tempDir.appendingPathComponent("config.json"))
                     try copyIfExists(historyURL, to: tempDir.appendingPathComponent("history.json"))
                     if let logURL {
-                        try copyIfExists(logURL, to: tempDir.appendingPathComponent("vaani.log"))
+                        try copyIfExists(logURL, to: tempDir.appendingPathComponent("speakdash.log"))
                     }
 
                     let info = """
