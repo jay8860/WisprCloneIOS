@@ -23,6 +23,8 @@ A local, no-subscription dictation tool for macOS that behaves like a Wispr-styl
   - short-press filtering
   - retry on transient Gemini failures
   - serial transcription queueing
+  - optional compressed audio upload (M4A) to reduce latency
+  - optional offline Whisper fallback (whisper.cpp) if Gemini fails
 
 ## Project path
 `/Users/jayantnahata/Desktop/ChatGPT Codex Folder/wispr-clone-gemini`
@@ -82,6 +84,9 @@ Config file is created automatically at:
 Important fields:
 - `hotkey.keyCode`, `hotkey.modifiers`
 - `preferredInputDeviceUID` (optional; picks a specific mic by UID, otherwise uses system default)
+- `compressAudioForUpload` (optional; exports to M4A before uploading to Gemini)
+- `enableOfflineWhisperFallback` (optional; uses whisper.cpp when Gemini fails)
+- `offlineWhisperBinaryPath`, `offlineWhisperModelPath` (paths for whisper.cpp)
 - `languageHint`
 - `languageMode` (`auto`, `english`, `hindi`, `mixed`)
 - `scriptPreference` (`auto`, `native`, `romanized`)

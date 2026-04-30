@@ -23,6 +23,10 @@ final class VaaniSettingsWindowController: NSWindowController {
     private var formatListsCheckbox: NSButton!
     private var voiceCommandsCheckbox: NSButton!
     private var blockSensitiveCheckbox: NSButton!
+    private var compressAudioCheckbox: NSButton!
+    private var offlineFallbackCheckbox: NSButton!
+    private var whisperBinField: NSTextField!
+    private var whisperModelField: NSTextField!
 
     private var maxRecordingSecondsField: NSTextField!
     private var retriesField: NSTextField!
@@ -243,12 +247,63 @@ final class VaaniSettingsWindowController: NSWindowController {
         let view = NSView()
         view.translatesAutoresizingMaskIntoConstraints = false
 
+        compressAudioCheckbox = checkbox("Compress audio before upload (faster)", action: #selector(onToggleChanged))
+        offlineFallbackCheckbox = checkbox("Offline Whisper fallback (if Gemini fails)", action: #selector(onToggleChanged))
+
+        let binLabel = label("Whisper binary")
+        whisperBinField = NSTextField()
+        whisperBinField.translatesAutoresizingMaskIntoConstraints = false
+        whisperBinField.placeholderString = "/path/to/whisper.cpp/main"
+        whisperBinField.target = self
+        whisperBinField.action = #selector(onAdvancedChanged)
+
+        let pickBin = NSButton(title: "Choose…", target: self, action: #selector(chooseWhisperBinary))
+        pickBin.translatesAutoresizingMaskIntoConstraints = false
+
+        let modelLabel = label("Whisper model")
+        whisperModelField = NSTextField()
+        whisperModelField.translatesAutoresizingMaskIntoConstraints = false
+        whisperModelField.placeholderString = "/path/to/ggml-model.bin"
+        whisperModelField.target = self
+        whisperModelField.action = #selector(onAdvancedChanged)
+
+        let pickModel = NSButton(title: "Choose…", target: self, action: #selector(chooseWhisperModel))
+        pickModel.translatesAutoresizingMaskIntoConstraints = false
+
         let openConfig = NSButton(title: "Open config.json in Finder", target: self, action: #selector(openConfigFolder))
         openConfig.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(openConfig)
 
+        let grid = NSGridView(views: [
+            [binLabel, whisperBinField, pickBin],
+            [modelLabel, whisperModelField, pickModel]
+        ])
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        grid.columnSpacing = 10
+        grid.rowSpacing = 10
+        grid.yPlacement = .top
+        view.addSubview(grid)
+
+        let stack = NSStackView(views: [
+            compressAudioCheckbox,
+            offlineFallbackCheckbox
+        ])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        view.addSubview(stack)
+
         NSLayoutConstraint.activate([
-            openConfig.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
+
+            grid.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 16),
+            grid.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            grid.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+
+            openConfig.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 20),
             openConfig.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16)
         ])
 
@@ -278,9 +333,14 @@ final class VaaniSettingsWindowController: NSWindowController {
         formatListsCheckbox.state = config.formatSpokenLists ? .on : .off
         voiceCommandsCheckbox.state = config.enableVoiceEditingCommands ? .on : .off
         blockSensitiveCheckbox.state = config.blockInSensitiveFields ? .on : .off
+        compressAudioCheckbox.state = config.compressAudioForUpload ? .on : .off
+        offlineFallbackCheckbox.state = config.enableOfflineWhisperFallback ? .on : .off
 
         maxRecordingSecondsField.stringValue = String(config.maxRecordingSeconds)
         retriesField.stringValue = String(config.maxTranscriptionRetries)
+
+        whisperBinField.stringValue = config.offlineWhisperBinaryPath ?? ""
+        whisperModelField.stringValue = config.offlineWhisperModelPath ?? ""
     }
 
     private func persistAndApply() {
@@ -342,13 +402,47 @@ final class VaaniSettingsWindowController: NSWindowController {
         config.formatSpokenLists = formatListsCheckbox.state == .on
         config.enableVoiceEditingCommands = voiceCommandsCheckbox.state == .on
         config.blockInSensitiveFields = blockSensitiveCheckbox.state == .on
+        config.compressAudioForUpload = compressAudioCheckbox.state == .on
+        config.enableOfflineWhisperFallback = offlineFallbackCheckbox.state == .on
         persistAndApply()
     }
 
     @objc private func onAdvancedChanged() {
         config.maxRecordingSeconds = max(5, Int(maxRecordingSecondsField.intValue))
         config.maxTranscriptionRetries = max(0, Int(retriesField.intValue))
+        let bin = whisperBinField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.offlineWhisperBinaryPath = bin.isEmpty ? nil : bin
+        let model = whisperModelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.offlineWhisperModelPath = model.isEmpty ? nil : model
         persistAndApply()
+    }
+
+    @objc private func chooseWhisperBinary() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.title = "Choose whisper.cpp binary"
+        panel.begin { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            self.whisperBinField.stringValue = url.path
+            self.onAdvancedChanged()
+            self.refreshUI()
+        }
+    }
+
+    @objc private func chooseWhisperModel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.title = "Choose Whisper model (.bin)"
+        panel.begin { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            self.whisperModelField.stringValue = url.path
+            self.onAdvancedChanged()
+            self.refreshUI()
+        }
     }
 
     @objc private func openConfigFolder() {

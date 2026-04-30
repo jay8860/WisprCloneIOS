@@ -106,6 +106,10 @@ struct FlowConfig: Codable {
     var appModeOverrides: [String: StyleMode]
     var hotkey: HotkeyConfig
     var preferredInputDeviceUID: String?
+    var compressAudioForUpload: Bool
+    var enableOfflineWhisperFallback: Bool
+    var offlineWhisperBinaryPath: String?
+    var offlineWhisperModelPath: String?
     var stripFillers: Bool
     var autoPunctuation: Bool
     var convertSpokenFormattingCommands: Bool
@@ -136,6 +140,10 @@ struct FlowConfig: Codable {
         case appModeOverrides
         case hotkey
         case preferredInputDeviceUID
+        case compressAudioForUpload
+        case enableOfflineWhisperFallback
+        case offlineWhisperBinaryPath
+        case offlineWhisperModelPath
         case stripFillers
         case autoPunctuation
         case convertSpokenFormattingCommands
@@ -172,6 +180,10 @@ struct FlowConfig: Codable {
             ],
             hotkey: HotkeyConfig(keyCode: 49, modifiers: [.option]),
             preferredInputDeviceUID: nil,
+            compressAudioForUpload: true,
+            enableOfflineWhisperFallback: false,
+            offlineWhisperBinaryPath: nil,
+            offlineWhisperModelPath: nil,
             stripFillers: true,
             autoPunctuation: true,
             convertSpokenFormattingCommands: true,
@@ -219,6 +231,10 @@ struct FlowConfig: Codable {
         appModeOverrides: [String: StyleMode],
         hotkey: HotkeyConfig,
         preferredInputDeviceUID: String?,
+        compressAudioForUpload: Bool,
+        enableOfflineWhisperFallback: Bool,
+        offlineWhisperBinaryPath: String?,
+        offlineWhisperModelPath: String?,
         stripFillers: Bool,
         autoPunctuation: Bool,
         convertSpokenFormattingCommands: Bool,
@@ -248,6 +264,10 @@ struct FlowConfig: Codable {
         self.appModeOverrides = appModeOverrides
         self.hotkey = hotkey
         self.preferredInputDeviceUID = preferredInputDeviceUID
+        self.compressAudioForUpload = compressAudioForUpload
+        self.enableOfflineWhisperFallback = enableOfflineWhisperFallback
+        self.offlineWhisperBinaryPath = offlineWhisperBinaryPath
+        self.offlineWhisperModelPath = offlineWhisperModelPath
         self.stripFillers = stripFillers
         self.autoPunctuation = autoPunctuation
         self.convertSpokenFormattingCommands = convertSpokenFormattingCommands
@@ -282,6 +302,10 @@ struct FlowConfig: Codable {
         self.appModeOverrides = try container.decodeIfPresent([String: StyleMode].self, forKey: .appModeOverrides) ?? defaults.appModeOverrides
         self.hotkey = try container.decodeIfPresent(HotkeyConfig.self, forKey: .hotkey) ?? defaults.hotkey
         self.preferredInputDeviceUID = try container.decodeIfPresent(String.self, forKey: .preferredInputDeviceUID) ?? defaults.preferredInputDeviceUID
+        self.compressAudioForUpload = try container.decodeIfPresent(Bool.self, forKey: .compressAudioForUpload) ?? defaults.compressAudioForUpload
+        self.enableOfflineWhisperFallback = try container.decodeIfPresent(Bool.self, forKey: .enableOfflineWhisperFallback) ?? defaults.enableOfflineWhisperFallback
+        self.offlineWhisperBinaryPath = try container.decodeIfPresent(String.self, forKey: .offlineWhisperBinaryPath) ?? defaults.offlineWhisperBinaryPath
+        self.offlineWhisperModelPath = try container.decodeIfPresent(String.self, forKey: .offlineWhisperModelPath) ?? defaults.offlineWhisperModelPath
         self.stripFillers = try container.decodeIfPresent(Bool.self, forKey: .stripFillers) ?? defaults.stripFillers
         self.autoPunctuation = try container.decodeIfPresent(Bool.self, forKey: .autoPunctuation) ?? defaults.autoPunctuation
         self.convertSpokenFormattingCommands = try container.decodeIfPresent(Bool.self, forKey: .convertSpokenFormattingCommands) ?? defaults.convertSpokenFormattingCommands
@@ -997,6 +1021,7 @@ final class GeminiClient: @unchecked Sendable {
 
     func transcribe(audioURL: URL, config: FlowConfig, context: DictationContext) throws -> String {
         let audioData = try Data(contentsOf: audioURL)
+        let audioMimeType = AudioProcessing.mimeType(for: audioURL)
         let prompt = buildPrompt(config: config, context: context)
         let configuredRetries = max(0, config.maxTranscriptionRetries)
 
@@ -1004,7 +1029,7 @@ final class GeminiClient: @unchecked Sendable {
         var attempt = 0
         while true {
             do {
-                return try transcribeOnce(audioData: audioData, prompt: prompt)
+                return try transcribeOnce(audioData: audioData, audioMimeType: audioMimeType, prompt: prompt)
             } catch {
                 lastError = error
                 let allowedRetries = isRateLimited(error)
@@ -1085,7 +1110,7 @@ final class GeminiClient: @unchecked Sendable {
         session.dataTask(with: request) { _, _, _ in }.resume()
     }
 
-    private func transcribeOnce(audioData: Data, prompt: String) throws -> String {
+    private func transcribeOnce(audioData: Data, audioMimeType: String, prompt: String) throws -> String {
         let body: [String: Any] = [
             "systemInstruction": [
                 "parts": [
@@ -1101,7 +1126,7 @@ final class GeminiClient: @unchecked Sendable {
                         ["text": prompt],
                         [
                             "inlineData": [
-                                "mimeType": "audio/wav",
+                                "mimeType": audioMimeType,
                                 "data": audioData.base64EncodedString()
                             ]
                         ]
@@ -2249,7 +2274,39 @@ final class FlowCloneService: @unchecked Sendable {
             do {
                 let modelStartedAt = Date()
                 let geminiClient = try self.getOrCreateGeminiClient()
-                let raw = try geminiClient.transcribe(audioURL: audioURL, config: config, context: context)
+
+                let (geminiAudioURL, cleanupGeminiAudio): (URL, (() -> Void)) = {
+                    if config.compressAudioForUpload,
+                       let compressed = AudioProcessing.compressToM4AIfPossible(inputWAV: audioURL) {
+                        return (compressed.url, { try? FileManager.default.removeItem(at: compressed.url) })
+                    }
+                    return (audioURL, {})
+                }()
+                defer { cleanupGeminiAudio() }
+
+                let raw: String
+                let modelLabel: String
+                do {
+                    raw = try geminiClient.transcribe(audioURL: geminiAudioURL, config: config, context: context)
+                    modelLabel = config.geminiModel
+                } catch {
+                    if config.enableOfflineWhisperFallback,
+                       let bin = config.offlineWhisperBinaryPath,
+                       let model = config.offlineWhisperModelPath {
+                        DispatchQueue.main.async {
+                            VisualCueHUD.shared.show(message: "Offline Transcribing…", color: .systemOrange)
+                        }
+                        let offline = try OfflineWhisperClient.transcribe(
+                            audioURL: audioURL,
+                            config: .init(binaryPath: bin, modelPath: model, languageHint: config.languageHint)
+                        )
+                        raw = offline
+                        modelLabel = "whisper.cpp"
+                    } else {
+                        throw error
+                    }
+                }
+
                 let modelLatencyMs = Int(Date().timeIntervalSince(modelStartedAt) * 1000)
                 let postProcessedText = FlowCloneService.postProcess(raw, config: config)
                 let finalText = try self.enforceSelectedLanguageMode(on: postProcessedText, config: config, geminiClient: geminiClient)
@@ -2263,7 +2320,7 @@ final class FlowCloneService: @unchecked Sendable {
                 self.backupDictationText(
                     outputText,
                     appName: context.appName,
-                    model: config.geminiModel,
+                    model: modelLabel,
                     modelLatencyMs: modelLatencyMs,
                     pipelineLatencyMs: pipelineLatencyMs
                 )
